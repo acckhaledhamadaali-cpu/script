@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>حركات المخازن</title>
+<style>
+:root{--bg:#f4f6f9;--card:#fff;--ink:#1c2733;--muted:#6b7785;--brand:#1F3A5F;--ok:#1d7a4a;--warn:#b26a00;--bad:#b3261e;--line:#dde3ea}
+*{box-sizing:border-box}
+body{margin:0;font-family:Tahoma,Arial,sans-serif;background:var(--bg);color:var(--ink);font-size:15px}
+header{background:var(--brand);color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+header .muted{color:#c9d5e4;font-size:13px}
+nav{display:flex;background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+nav button{flex:1;padding:12px 6px;border:0;background:none;font:inherit;color:var(--muted);border-bottom:3px solid transparent;cursor:pointer}
+nav button.on{color:var(--brand);border-bottom-color:var(--brand);font-weight:bold}
+main{max-width:720px;margin:0 auto;padding:14px}
+label{display:block;margin-bottom:12px;font-size:13px;color:var(--muted)}
+label[hidden]{display:none}
+input,select{width:100%;margin-top:4px;padding:10px;border:1px solid var(--line);border-radius:8px;font:inherit;color:var(--ink);background:#fff}
+select:disabled{background:#eef1f5}
+.row2{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end}
+.unit{padding:10px 12px;margin-bottom:12px;color:var(--muted)}
+.muted{color:var(--muted);font-size:13px}
+#avail{margin:-4px 0 12px}
+button.primary{background:var(--brand);color:#fff;border:0;border-radius:8px;padding:12px 18px;font:inherit;cursor:pointer}
+button.ghost{background:#fff;color:var(--brand);border:1px solid var(--line);border-radius:8px;padding:8px 14px;font:inherit;cursor:pointer}
+header button.ghost{background:transparent;color:#fff;border-color:#5c7aa3}
+button.ok{background:var(--ok);color:#fff;border:0;border-radius:8px;padding:8px 14px;font:inherit;cursor:pointer}
+button.bad{background:#fff;color:var(--bad);border:1px solid var(--bad);border-radius:8px;padding:8px 14px;font:inherit;cursor:pointer}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:10px}
+.card .top{display:flex;justify-content:space-between;gap:8px;align-items:start}
+.card .title{font-weight:bold}
+.badge{font-size:12px;padding:3px 9px;border-radius:12px;white-space:nowrap}
+.b-pend{background:#fff3dc;color:var(--warn)}
+.b-ok{background:#dff3e8;color:var(--ok)}
+.b-rej,.b-can{background:#fbe3e1;color:var(--bad)}
+.card .meta{margin:6px 0;color:var(--muted);font-size:13px}
+.card .btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.pill{background:var(--bad);color:#fff;border-radius:10px;padding:1px 7px;font-size:12px}
+.pill.zero{background:#c3cbd6}
+#toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#1c2733;color:#fff;padding:10px 16px;border-radius:10px;opacity:0;pointer-events:none;transition:.2s;max-width:92%;z-index:20}
+#toast.show{opacity:1}
+#toast.bad{background:var(--bad)}
+.empty{text-align:center;color:var(--muted);padding:28px 0}
+</style>
+</head>
+<body>
+<header>
+  <div><b id="uname">جارٍ التحميل...</b><div class="muted" id="umeta"></div></div>
+  <button class="ghost" id="btnRefresh" type="button">تحديث</button>
+</header>
+<nav>
+  <button class="on" data-tab="new" type="button">حركة جديدة</button>
+  <button data-tab="todo" type="button">بانتظار اعتمادي <span class="pill zero" id="cTodo">0</span></button>
+  <button data-tab="all" type="button">حركاتي</button>
+</nav>
+<main>
+  <section id="tab-new">
+    <form id="f" autocomplete="off">
+      <label>نوع الحركة<select id="type"></select></label>
+      <label>التاريخ<input type="date" id="date"></label>
+      <label id="wFrom">من (مكان)<select id="from"></select></label>
+      <label id="wTo">إلى (مكان)<select id="to"></select></label>
+      <label>الصنف<input id="item" list="itemsList" placeholder="ابدأ بكتابة اسم الصنف"></label>
+      <datalist id="itemsList"></datalist>
+      <div class="row2">
+        <label>الكمية<input id="qty" type="number" step="any" min="0" inputmode="decimal"></label>
+        <div class="unit" id="unitBox"></div>
+      </div>
+      <label id="wPrice">سعر الوحدة<input id="price" type="number" step="any" min="0" inputmode="decimal"></label>
+      <div id="avail" class="muted"></div>
+      <label>رقم المرجع (فاتورة/إذن)<input id="ref"></label>
+      <label>ملاحظات<input id="notes"></label>
+      <div class="actions">
+        <button type="submit" class="primary" id="btnSave">حفظ الحركة</button>
+        <button type="button" class="ghost" id="btnCancelEdit" hidden>إلغاء التعديل</button>
+      </div>
+    </form>
+  </section>
+  <section id="tab-todo" hidden><div id="listTodo"></div></section>
+  <section id="tab-all" hidden><div id="listAll"></div></section>
+</main>
+<div id="toast"></div>
+
+<script>
+var META = null, LIST = [], EDIT = null;
+function $(id){ return document.getElementById(id); }
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+function call(action, payload){
+  return new Promise(function(res, rej){
+    google.script.run
+      .withSuccessHandler(function(r){ res(JSON.parse(r)); })
+      .withFailureHandler(function(e){ rej(e); })
+      .api(action, JSON.stringify(payload || {}));
+  });
+}
+function toast(msg, bad){
+  var t = $('toast'); t.textContent = msg; t.className = (bad ? 'bad ' : '') + 'show';
+  clearTimeout(toast._t); toast._t = setTimeout(function(){ t.className = ''; }, 5000);
+}
+function errMsg(e){ return (e && e.message ? e.message : String(e)).replace(/^Error:\s*/, ''); }
+function today(){ var d = new Date(); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+function fillSelect(sel, values, blank){
+  var h = blank ? '<option value=""></option>' : '';
+  values.forEach(function(v){ h += '<option value="' + esc(v) + '">' + esc(v) + '</option>'; });
+  sel.innerHTML = h;
+}
+function placeNames(){ return META.places.map(function(p){ return p.name; }); }
+function curType(){ return META.types.filter(function(t){ return t.type === $('type').value; })[0]; }
+function unitOf(name){ var m = META.items.filter(function(i){ return i.name === name; })[0]; return m ? m.unit : ''; }
+
+function onType(){
+  var t = curType(); if (!t) return;
+  var me = META.user.place;
+  $('wFrom').hidden = !t.from; $('wTo').hidden = !t.to; $('wPrice').hidden = !t.price;
+  fillSelect($('from'), placeNames(), true); fillSelect($('to'), placeNames(), true);
+  $('from').disabled = (t.lock === 'from'); $('to').disabled = (t.lock === 'to');
+  if (t.lock === 'from') $('from').value = me;
+  if (t.lock === 'to') $('to').value = me;
+  refreshAvail();
+}
+function onItem(){ $('unitBox').textContent = unitOf($('item').value.trim()); refreshAvail(); }
+function refreshAvail(){
+  var t = curType(), box = $('avail'); box.textContent = '';
+  if (!t || !t.from) return;
+  var place = $('from').value, item = $('item').value.trim();
+  if (!place || !item || !unitOf(item)) return;
+  call('available', { place: place, item: item }).then(function(r){
+    box.textContent = 'المتاح في ' + place + ': ' + r.available + ' ' + unitOf(item);
+  }).catch(function(){});
+}
+
+function resetForm(){
+  EDIT = null;
+  $('f').reset(); $('date').value = today();
+  $('btnSave').textContent = 'حفظ الحركة'; $('btnCancelEdit').hidden = true;
+  $('unitBox').textContent = ''; $('avail').textContent = '';
+  onType();
+}
+function setEditing(q){
+  EDIT = q.id; showTab('new');
+  $('type').value = q.type; onType();
+  $('date').value = q.date;
+  if (!$('from').disabled) $('from').value = q.from;
+  if (!$('to').disabled) $('to').value = q.to;
+  $('item').value = q.item; onItem();
+  $('qty').value = q.qty; $('price').value = q.price === '' ? '' : q.price;
+  $('ref').value = q.ref; $('notes').value = q.notes;
+  $('btnSave').textContent = 'حفظ التعديل'; $('btnCancelEdit').hidden = false;
+  window.scrollTo(0, 0);
+}
+
+function showTab(name){
+  ['new','todo','all'].forEach(function(n){ $('tab-' + n).hidden = (n !== name); });
+  Array.prototype.forEach.call(document.querySelectorAll('nav button'), function(b){
+    b.className = (b.getAttribute('data-tab') === name) ? 'on' : '';
+  });
+}
+
+function card(q){
+  var cls = q.status === 'معتمد' ? 'b-ok' : (q.status === 'قيد الانتظار' ? 'b-pend' : (q.status === 'مرفوض' ? 'b-rej' : 'b-can'));
+  var route = [q.from ? 'من ' + q.from : '', q.to ? 'إلى ' + q.to : ''].filter(Boolean).join(' · ');
+  var h = '<div class="card"><div class="top"><div class="title">' + esc(q.type) + ' · ' + esc(q.item) + ' · ' + esc(q.qty) + ' ' + esc(q.unit) + '</div>' +
+    '<span class="badge ' + cls + '">' + esc(q.status) + '</span></div>' +
+    '<div class="meta">' + esc(route) + '<br>' + esc(q.date) + ' · أدخلها ' + esc(q.by) + ' (' + esc(q.at) + ')' +
+    (q.ref ? '<br>المرجع: ' + esc(q.ref) : '') + (q.notes ? '<br>' + esc(q.notes) : '') +
+    (q.status === 'معتمد' ? '<br>اعتمدها: ' + esc(q.appr) + ' (' + esc(q.apprAt) + ')' : '') +
+    (q.status === 'مرفوض' ? '<br>سبب الرفض: ' + esc(q.reason) : '') +
+    (q.canEdit && q.editUntil ? '<br>التعديل متاح حتى ' + esc(q.editUntil) : '') +
+    '<br>رقم: ' + esc(q.id) + '</div>';
+  var b = '';
+  if (q.canApprove) b += '<button class="ok" data-act="approve" data-id="' + esc(q.id) + '">اعتماد</button><button class="bad" data-act="reject" data-id="' + esc(q.id) + '">رفض</button>';
+  if (q.canEdit) b += '<button class="ghost" data-act="edit" data-id="' + esc(q.id) + '">تعديل</button><button class="bad" data-act="cancel" data-id="' + esc(q.id) + '">إلغاء الحركة</button>';
+  return h + (b ? '<div class="btns">' + b + '</div>' : '') + '</div>';
+}
+function renderLists(){
+  var todo = LIST.filter(function(q){ return q.canApprove; });
+  $('cTodo').textContent = todo.length; $('cTodo').className = 'pill' + (todo.length ? '' : ' zero');
+  $('listTodo').innerHTML = todo.length ? todo.map(card).join('') : '<div class="empty">لا توجد حركات بانتظار اعتمادك</div>';
+  $('listAll').innerHTML = LIST.length ? LIST.map(card).join('') : '<div class="empty">لا توجد حركات بعد</div>';
+}
+function refresh(){
+  return call('list', {}).then(function(r){ LIST = r; renderLists(); }).catch(function(e){ toast(errMsg(e), true); });
+}
+function onAction(ev){
+  var b = ev.target.closest('button[data-act]'); if (!b) return;
+  var act = b.getAttribute('data-act'), id = b.getAttribute('data-id');
+  var q = LIST.filter(function(x){ return x.id === id; })[0];
+  if (act === 'edit') return setEditing(q);
+  var payload = { id: id };
+  if (act === 'approve' && !confirm('اعتماد هذه الحركة؟ لا يمكن تعديلها بعد الاعتماد.')) return;
+  if (act === 'cancel' && !confirm('إلغاء هذه الحركة؟')) return;
+  if (act === 'reject') { var r = prompt('سبب الرفض:'); if (!r) return; payload.reason = r; }
+  b.disabled = true;
+  call(act, payload).then(function(){ toast('تم'); return refresh(); }).catch(function(e){ toast(errMsg(e), true); b.disabled = false; });
+}
+
+$('f').addEventListener('submit', function(ev){
+  ev.preventDefault();
+  var t = curType(); if (!t) return;
+  var p = { type: t.type, date: $('date').value, from: t.from ? $('from').value : '', to: t.to ? $('to').value : '',
+    item: $('item').value.trim(), qty: $('qty').value, price: t.price ? $('price').value : '',
+    ref: $('ref').value, notes: $('notes').value };
+  if (EDIT) p.id = EDIT;
+  var btn = $('btnSave'); btn.disabled = true;
+  call(EDIT ? 'edit' : 'submit', p).then(function(r){
+    toast(r.status === 'معتمد' ? 'تم الحفظ والاعتماد تلقائيًا' : 'تم الحفظ');
+    resetForm(); return refresh();
+  }).catch(function(e){ toast(errMsg(e), true); }).then(function(){ btn.disabled = false; });
+});
+$('type').addEventListener('change', onType);
+$('from').addEventListener('change', refreshAvail);
+$('item').addEventListener('change', onItem);
+$('btnCancelEdit').addEventListener('click', resetForm);
+$('btnRefresh').addEventListener('click', refresh);
+document.querySelector('nav').addEventListener('click', function(ev){ var b = ev.target.closest('button[data-tab]'); if (b) showTab(b.getAttribute('data-tab')); });
+$('listTodo').addEventListener('click', onAction);
+$('listAll').addEventListener('click', onAction);
+
+call('meta').then(function(m){
+  META = m;
+  $('uname').textContent = m.user.name;
+  $('umeta').textContent = (m.user.isOwner ? 'المالك' : (m.user.place || '')) + ' · ' + m.user.email;
+  var allowed = m.types.filter(function(t){ return t.canEnter; }).map(function(t){ return t.type; });
+  fillSelect($('type'), allowed, false);
+  $('itemsList').innerHTML = m.items.map(function(i){ return '<option value="' + esc(i.name) + '">'; }).join('');
+  if (!allowed.length) { $('f').innerHTML = '<div class="empty">حسابك للعرض فقط</div>'; }
+  else { $('date').value = today(); onType(); }
+  return refresh();
+}).catch(function(e){ $('uname').textContent = 'تعذر الدخول'; $('umeta').textContent = errMsg(e); });
+</script>
+</body>
+</html>

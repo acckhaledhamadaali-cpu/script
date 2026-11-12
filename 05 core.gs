@@ -76,6 +76,9 @@ function handle_(email, action, p) {
     case 'cancel': return cancel_(ctx, p);
     case 'approve': return approve_(ctx, p);
     case 'reject': return reject_(ctx, p);
+    case 'balances': return balances_(ctx, p);
+    case 'card': return card_(ctx, p);
+    case 'summary': return summary_(ctx);
     default: throw new Error('إجراء غير معروف');
   }
 }
@@ -147,7 +150,7 @@ function nameOf_(ctx, email) {
 function loadSettings_(ss) {
   const v = ss.getSheetByName(TAB.SETTINGS).getRange('A2:B20').getValues();
   const m = {};
-  v.forEach(function (r) { if (r[0] !== '') m[String(r[0]).trim()] = r[1] === '' ? '' : (typeof r[1] === 'number' ? r[1] : String(r[1]).trim()); });
+  v.forEach(function (r) { if (r[0] !== '') m[String(r[0]).trim()] = r[1] === '' ? '' : (r[1] instanceof Date || typeof r[1] === 'number' ? r[1] : String(r[1]).trim()); });
   return m;
 }
 
@@ -309,6 +312,7 @@ function normalize_(ctx, p) {
   if (!shape || !ctx.rules[e.type]) throw new Error('نوع الحركة غير معروف');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(p.date || ''))) throw new Error('التاريخ غير صحيح');
   e.date = Utilities.parseDate(String(p.date), ctx.tz, 'yyyy-MM-dd');
+  assertOpenPeriod_(ctx, e.date);
   if (!isFinite(e.qty) || e.qty <= 0) throw new Error('الكمية يجب أن تكون رقمًا أكبر من صفر');
   const items = loadItems_(ctx);
   if (!Object.prototype.hasOwnProperty.call(items, e.item)) throw new Error('الصنف غير موجود في تبويب الأصناف');
@@ -351,6 +355,7 @@ function approveRow_(ctx, rowNum, label) {
   const qs = ctx.ss.getSheetByName(TAB.QUEUE);
   const q = toQ_(qs.getRange(rowNum, 1, 1, QCOLS).getValues()[0], rowNum);
   if (q.status !== ST.PEND) throw new Error('الحركة ليست قيد الانتظار');
+  assertOpenPeriod_(ctx, q.date);
   if (q.from && !ctx.allowNeg) {
     const bal = ledgerBalances_(ctx)[q.from + '|' + q.item] || 0;
     if (q.qty > bal + 1e-9) throw new Error('لا يمكن الاعتماد: رصيد ' + q.from + ' الحالي (' + bal + ') أقل من الكمية');
@@ -376,6 +381,7 @@ function submit_(ctx, p) {
     qs.getRange(rowNum, 1, 1, QCOLS).setValues([[id, e.date, e.type, e.from, e.to, e.item, e.qty, e.price,
       e.unit, e.ref, e.notes, ctx.user.email, now, ST.PEND, '', '', now, '', '']]);
     audit_(ctx, 'إدخال', id, e.type + ' | ' + e.item + ' | ' + e.qty + ' | ' + (e.from || '-') + ' > ' + (e.to || '-'));
+    if (rule.approve !== 'تلقائي') notifyApprovers_(ctx, id, e);
     let status = ST.PEND;
     if (rule.approve === 'تلقائي') { approveRow_(ctx, rowNum, 'تلقائي'); status = ST.OK; }
     return { id: id, status: status };

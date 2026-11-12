@@ -44,6 +44,16 @@ button.bad{background:#fff;color:var(--bad);border:1px solid var(--bad);border-r
 #toast.show{opacity:1}
 #toast.bad{background:var(--bad)}
 .empty{text-align:center;color:var(--muted);padding:28px 0}
+table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--line);font-size:14px}
+th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:right}
+th{background:#eef1f5;color:var(--muted);font-weight:normal;font-size:13px}
+.num{text-align:left;direction:ltr;white-space:nowrap}
+.wrap{overflow-x:auto;border-radius:12px;margin-bottom:10px}
+.kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:12px}
+.kpi{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px;color:var(--muted);font-size:13px}
+.kpi b{display:block;font-size:22px;color:var(--brand)}
+.kpi.warn b{color:var(--warn)}
+.in{color:var(--ok)}.out{color:var(--bad)}
 </style>
 </head>
 <body>
@@ -55,6 +65,9 @@ button.bad{background:#fff;color:var(--bad);border:1px solid var(--bad);border-r
   <button class="on" data-tab="new" type="button">حركة جديدة</button>
   <button data-tab="todo" type="button">بانتظار اعتمادي <span class="pill zero" id="cTodo">0</span></button>
   <button data-tab="all" type="button">حركاتي</button>
+  <button data-tab="bal" type="button">الأرصدة</button>
+  <button data-tab="card" type="button">كارتة الصنف</button>
+  <button data-tab="sum" type="button" id="tabSum" hidden>لوحة المالك</button>
 </nav>
 <main>
   <section id="tab-new">
@@ -80,7 +93,18 @@ button.bad{background:#fff;color:var(--bad);border:1px solid var(--bad);border-r
     </form>
   </section>
   <section id="tab-todo" hidden><div id="listTodo"></div></section>
-  <section id="tab-all" hidden><div id="listAll"></div></section>
+    <section id="tab-all" hidden><div id="listAll"></div></section>
+  <section id="tab-bal" hidden>
+    <label id="wBalPlace">المكان<select id="balPlace"></select></label>
+    <label>بحث في الأصناف<input id="balQ" placeholder="اكتب جزءًا من اسم الصنف"></label>
+    <div id="balOut"></div>
+  </section>
+  <section id="tab-card" hidden>
+    <label id="wCardPlace">المكان<select id="cardPlace"></select></label>
+    <label>الصنف<input id="cardItem" list="itemsList" placeholder="اختر الصنف"></label>
+    <div id="cardOut"></div>
+  </section>
+  <section id="tab-sum" hidden><div id="sumOut"></div></section>
 </main>
 <div id="toast"></div>
 
@@ -153,10 +177,60 @@ function setEditing(q){
 }
 
 function showTab(name){
-  ['new','todo','all'].forEach(function(n){ $('tab-' + n).hidden = (n !== name); });
+    ['new','todo','all','bal','card','sum'].forEach(function(n){ $('tab-' + n).hidden = (n !== name); });
   Array.prototype.forEach.call(document.querySelectorAll('nav button'), function(b){
     b.className = (b.getAttribute('data-tab') === name) ? 'on' : '';
   });
+  if (name === 'bal') loadBal();
+  if (name === 'card') loadCard();
+  if (name === 'sum') loadSum();
+}
+
+function num(n){ return Number(n).toLocaleString('en-US', { maximumFractionDigits: 3 }); }
+function viewPlace(sel){ return META.user.isOwner ? $(sel).value : META.user.place; }
+var BAL = null;
+function loadBal(){
+  $('balOut').innerHTML = '<div class="empty">جارٍ التحميل...</div>';
+  call('balances', { place: viewPlace('balPlace') }).then(function(r){ BAL = r; renderBal(); })
+    .catch(function(e){ $('balOut').innerHTML = ''; toast(errMsg(e), true); });
+}
+function renderBal(){
+  if (!BAL) return;
+  var q = $('balQ').value.trim();
+  var rows = BAL.rows.filter(function(r){ return !q || r.item.indexOf(q) >= 0; });
+  $('balOut').innerHTML = rows.length ? '<div class="wrap"><table><thead><tr><th>الصنف</th><th class="num">الرصيد</th><th class="num">صادر معلق</th><th class="num">المتاح</th></tr></thead><tbody>' +
+    rows.map(function(r){
+      return '<tr><td>' + esc(r.item) + ' <span class="muted">' + esc(r.unit) + '</span></td><td class="num">' + num(r.qty) + '</td><td class="num">' + (r.outPending ? num(r.outPending) : '-') + '</td><td class="num">' + num(r.available) + '</td></tr>';
+    }).join('') + '</tbody></table></div>' : '<div class="empty">لا توجد أرصدة</div>';
+}
+function loadCard(){
+  var item = $('cardItem').value.trim();
+  if (!item || !unitOf(item)) { $('cardOut').innerHTML = '<div class="empty">اختر صنفًا لعرض كارتته</div>'; return; }
+  $('cardOut').innerHTML = '<div class="empty">جارٍ التحميل...</div>';
+  call('card', { place: viewPlace('cardPlace'), item: item }).then(function(r){
+    var h = '<div class="kpis"><div class="kpi">الرصيد الحالي في ' + esc(r.place) + '<b>' + num(r.balance) + ' ' + esc(r.unit) + '</b></div><div class="kpi">عدد الحركات<b>' + esc(r.count) + '</b></div></div>';
+    h += r.rows.length ? '<div class="wrap"><table><thead><tr><th>التاريخ</th><th>النوع</th><th>الطرف</th><th class="num">وارد</th><th class="num">صادر</th><th class="num">الرصيد</th></tr></thead><tbody>' +
+      r.rows.map(function(x){
+        var party = x.inQty ? ('من ' + (x.from || 'مورد')) : ('إلى ' + (x.to || 'استهلاك'));
+        return '<tr><td>' + esc(x.date) + '</td><td>' + esc(x.type) + '</td><td>' + esc(party) + (x.ref ? '<br><span class="muted">' + esc(x.ref) + '</span>' : '') + '</td><td class="num in">' + (x.inQty ? num(x.inQty) : '') + '</td><td class="num out">' + (x.outQty ? num(x.outQty) : '') + '</td><td class="num">' + num(x.balance) + '</td></tr>';
+      }).join('') + '</tbody></table></div>' : '<div class="empty">لا توجد حركات معتمدة لهذا الصنف في هذا المكان</div>';
+    $('cardOut').innerHTML = h;
+  }).catch(function(e){ $('cardOut').innerHTML = ''; toast(errMsg(e), true); });
+}
+function loadSum(){
+  $('sumOut').innerHTML = '<div class="empty">جارٍ التحميل...</div>';
+  call('summary', {}).then(function(s){
+    var h = '<div class="kpis">' +
+      '<div class="kpi' + (s.pendingTotal ? ' warn' : '') + '">حركات معلقة<b>' + esc(s.pendingTotal) + '</b></div>' +
+      '<div class="kpi' + (s.stale ? ' warn' : '') + '">معلقة أكثر من 24 ساعة<b>' + esc(s.stale) + '</b></div>' +
+      '<div class="kpi">اعتُمدت اليوم<b>' + esc(s.approvedToday) + '</b></div>' +
+      '<div class="kpi">رُفضت اليوم<b>' + esc(s.rejectedToday) + '</b></div>' +
+      '<div class="kpi' + (s.ledgerUsed > s.ledgerCap * 0.8 ? ' warn' : '') + '">سعة الدفتر<b>' + esc(s.ledgerUsed) + ' / ' + esc(s.ledgerCap) + '</b></div>' +
+      '<div class="kpi">إقفال الفترة حتى<b>' + esc(s.closeDate || 'غير مضبوط') + '</b></div></div>';
+    h += s.byWho.length ? '<div class="wrap"><table><thead><tr><th>بانتظار اعتماد</th><th class="num">العدد</th><th class="num">أقدمها (ساعة)</th></tr></thead><tbody>' +
+      s.byWho.map(function(w){ return '<tr><td>' + esc(w.who) + '</td><td class="num">' + esc(w.count) + '</td><td class="num">' + esc(w.oldestHours) + '</td></tr>'; }).join('') + '</tbody></table></div>' : '<div class="empty">لا توجد حركات معلقة</div>';
+    $('sumOut').innerHTML = h;
+  }).catch(function(e){ $('sumOut').innerHTML = ''; toast(errMsg(e), true); });
 }
 
 function card(q){
@@ -218,6 +292,10 @@ $('btnRefresh').addEventListener('click', refresh);
 document.querySelector('nav').addEventListener('click', function(ev){ var b = ev.target.closest('button[data-tab]'); if (b) showTab(b.getAttribute('data-tab')); });
 $('listTodo').addEventListener('click', onAction);
 $('listAll').addEventListener('click', onAction);
+$('balPlace').addEventListener('change', loadBal);
+$('balQ').addEventListener('input', renderBal);
+$('cardPlace').addEventListener('change', loadCard);
+$('cardItem').addEventListener('change', loadCard);
 
 call('meta').then(function(m){
   META = m;
@@ -226,6 +304,9 @@ call('meta').then(function(m){
   var allowed = m.types.filter(function(t){ return t.canEnter; }).map(function(t){ return t.type; });
   fillSelect($('type'), allowed, false);
   $('itemsList').innerHTML = m.items.map(function(i){ return '<option value="' + esc(i.name) + '">'; }).join('');
+  fillSelect($('balPlace'), placeNames(), false); fillSelect($('cardPlace'), placeNames(), false);
+  $('wBalPlace').hidden = !m.user.isOwner; $('wCardPlace').hidden = !m.user.isOwner;
+  $('tabSum').hidden = !m.user.isOwner;
   if (!allowed.length) { $('f').innerHTML = '<div class="empty">حسابك للعرض فقط</div>'; }
   else { $('date').value = today(); onType(); }
   return refresh();

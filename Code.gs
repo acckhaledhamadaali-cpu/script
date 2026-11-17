@@ -78,6 +78,13 @@ function user_(){
  return {email,name:r[h['الاسم']]||email,place,role};
 }
 function refs_(){const {a,h}=rows_(S.items);const items=a.slice(1).filter(r=>r[h['اسم الصنف (فريد)']]).map(r=>({name:String(r[h['اسم الصنف (فريد)']]),unit:String(r[h['الوحدة']]||''),avgCost:Number(r[h['متوسط التكلفة (تلقائي)']]||r[h['سعر مبدئي تقديري (عدّله)']])||0}));const p=rows_(S.places);return {items,places:p.a.slice(1).filter(r=>r[p.h['المكان']]&&!String(r[p.h['المكان']]).startsWith('ملاحظة:')).map(r=>({name:String(r[p.h['المكان']]),type:String(r[p.h['النوع']]||'')}))};}
+function verifyLogin(enteredEmail){
+ const u=user_();
+ const entered=String(enteredEmail||'').trim().toLowerCase();
+ if(!entered)throw Error('أدخل بريدك الإلكتروني.');
+ if(entered!==u.email)throw Error('البريد المدخل لا يطابق حساب Google المسجل حاليًا. سجّل الدخول بحسابك الصحيح.');
+ return {ok:true,user:{name:u.name,email:u.email,role:u.role,place:u.place}};
+}
 function getInitialData(){
  const u=user_();
  repairKnownLegacyOpeningBalance_();

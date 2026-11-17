@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <base target="_top"><meta charset="UTF-8">
+  <style>
+    :root{--navy:#172b4d;--blue:#2457a6;--bg:#f4f6fa;--line:#e4e8ef;--muted:#68758a;--red:#b8323a}
+    *{box-sizing:border-box}body{margin:0;font-family:Arial,Tahoma,sans-serif;background:var(--bg);color:#1d2939}
+    header{background:var(--navy);color:white;padding:18px 22px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+    h1{font-size:20px;margin:0 0 6px}header small{color:#d6dfed}.user{font-size:12px;line-height:1.8}
+    main{max-width:1180px;margin:22px auto;padding:0 15px}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+    .stat,.panel{background:white;border:1px solid var(--line);border-radius:12px;padding:16px}.stat span{display:block;color:var(--muted);font-size:12px;margin-bottom:8px}.stat strong{font-size:22px;color:var(--navy)}
+    .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}.tab{border:1px solid var(--line);background:white;border-radius:8px;padding:10px 14px;cursor:pointer;font-weight:bold}.tab.active{background:var(--blue);color:white}
+    .panel{margin-bottom:15px}.panel h2{font-size:17px;margin:0 0 14px;color:var(--navy)}.formgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+    label{display:block;font-size:13px;color:#475467;margin-bottom:6px}input,select{width:100%;border:1px solid #ccd4df;border-radius:8px;padding:11px;font:inherit;background:white;min-height:42px}
+    .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}button.primary{background:var(--blue);color:white;border:0;border-radius:8px;padding:10px 16px;cursor:pointer;font-weight:bold}
+    button.secondary{background:white;border:1px solid var(--line);border-radius:8px;padding:9px 13px;cursor:pointer}button.danger{background:white;color:var(--red);border:1px solid #efc6c8;border-radius:8px;padding:9px 13px;cursor:pointer}
+    button:disabled{opacity:.5;cursor:wait}.hint{font-size:12px;color:var(--muted);line-height:1.8;margin-top:9px}.hide{display:none!important}
+    .notice{display:none;padding:12px 14px;border-radius:8px;margin-bottom:14px;font-size:13px;line-height:1.7}.notice.ok{display:block;background:#e8f6ef;color:#116341}.notice.err{display:block;background:#fff0f0;color:#a32932}
+    .tablewrap{overflow:auto}table{width:100%;border-collapse:collapse;min-width:620px}th,td{text-align:right;padding:11px 9px;border-bottom:1px solid var(--line);font-size:13px;white-space:nowrap}th{background:#f8f9fb;color:#526176}
+    .cards{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.pending{border:1px solid var(--line);border-radius:10px;padding:13px}.pending p{font-size:13px;color:#536174;line-height:1.8}.empty{text-align:center;color:var(--muted);padding:18px}
+    @media(max-width:760px){.grid{grid-template-columns:repeat(2,1fr)}.formgrid{grid-template-columns:1fr 1fr}.cards{grid-template-columns:1fr}}
+    @media(max-width:480px){main{padding:0 10px;margin:12px auto}.formgrid{grid-template-columns:1fr}.stat{padding:12px}.stat strong{font-size:19px}.panel{padding:13px}}
+  </style>
+</head>
+<body>
+<header><div><h1>شاورمتي | إدارة المخزون</h1><small>الاستلام والتحويلات واعتماد الفروع</small></div><div class="user" id="userBox">جارٍ التحقق من المستخدم...</div></header>
+<main>
+  <div id="notice" class="notice"></div><section class="grid" id="stats"></section>
+  <nav class="tabs">
+    <button class="tab active" data-tab="movement">إدخال حركة</button>
+    <button class="tab" data-tab="approvals">طلبات الاعتماد <span id="pendingCount"></span></button>
+    <button class="tab" data-tab="balances">أرصدة الأماكن</button>
+    <button class="tab" data-tab="history">آخر الحركات</button>
+  </nav>
+  <section id="movement" class="panel">
+    <h2>تسجيل حركة مخزنية</h2>
+    <form id="moveForm"><div class="formgrid">
+      <div><label>نوع الحركة</label><select id="type"><option value="تحويل">تحويل بين الأماكن</option><option value="شراء">استلام مشتريات</option><option value="صرف للتشغيل">صرف للتشغيل</option><option value="هالك">هالك</option><option value="رصيد افتتاحي">رصيد افتتاحي</option><option value="مرتجع للمورد">مرتجع للمورد</option><option value="تسوية زيادة">تسوية زيادة</option><option value="تسوية عجز">تسوية عجز</option></select></div>
+      <div><label>الصنف</label><select id="item" required></select></div>
+      <div><label>الكمية</label><input id="qty" type="number" min="0.001" step="0.001" required></div>
+      <div id="fromWrap"><label>من (المصدر)</label><select id="from"></select></div>
+      <div id="toWrap"><label>إلى (المستلم)</label><select id="to"></select></div>
+      <div id="priceWrap" class="hide"><label>سعر الوحدة</label><input id="price" type="number" min="0" step="0.01"></div>
+      <div><label>التاريخ</label><input id="date" type="date" required></div>
+      <div><label>رقم الفاتورة / إذن التحويل</label><input id="reference" placeholder="اختياري"></div>
+      <div><label>ملاحظات</label><input id="notes" placeholder="تفاصيل إضافية"></div>
+    </div><p class="hint" id="typeHint">التحويل يظل معلقًا حتى يؤكد المكان المستلم الاستلام.</p>
+    <div class="actions"><button class="primary" id="submitBtn">إرسال الحركة</button><button class="secondary" type="reset">مسح الحقول</button></div></form>
+  </section>
+  <section id="approvals" class="panel hide"><h2>التحويلات بانتظار اعتماد المكان المستلم</h2><div id="pendingList" class="cards"></div></section>
+  <section id="balances" class="panel hide"><h2>ملخص أرصدة الأماكن</h2><div class="tablewrap"><table><thead><tr><th>المكان</th><th>الكمية الصافية</th><th>القيمة التقديرية (ر.س)</th></tr></thead><tbody id="balanceRows"></tbody></table></div></section>
+  <section id="history" class="panel hide"><h2>آخر الحركات المعتمدة</h2><div class="tablewrap"><table><thead><tr><th>التاريخ</th><th>النوع</th><th>من</th><th>إلى</th><th>الصنف</th><th>الكمية</th></tr></thead><tbody id="historyRows"></tbody></table></div></section>
+  <p class="hint">لا يتغير الرصيد بسبب التحويل إلا بعد الاعتماد. جميع عمليات الاعتماد والرفض تُسجل في سجل التدقيق.</p>
+</main>
+<script>
+let DATA=null;const $=id=>document.getElementById(id);
+function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function num(v){return (Number(v)||0).toLocaleString('ar-SA',{maximumFractionDigits:2});}
+function notice(msg,type='ok'){const n=$('notice');n.textContent=msg;n.className='notice '+type;window.scrollTo({top:0,behavior:'smooth'});}
+function load(){google.script.run.withSuccessHandler(render).withFailureHandler(e=>notice(e.message||String(e),'err')).getInitialData();}
+function options(id,items,placeholder){$(id).innerHTML='<option value="">'+placeholder+'</option>'+items.map(x=>'<option value="'+esc(x.value)+'">'+esc(x.label)+'</option>').join('');}
+function render(d){
+ DATA=d;$('userBox').innerHTML='<b>'+esc(d.user.name)+'</b><br>'+esc(d.user.email)+'<br>'+esc(d.user.role)+(d.user.place?' — '+esc(d.user.place):'');
+ $('stats').innerHTML='<div class="stat"><span>قيمة المخزون التقديرية</span><strong>'+num(d.summary.totalValue)+' ر.س</strong></div><div class="stat"><span>إجمالي الكميات</span><strong>'+num(d.summary.totalQty)+'</strong></div><div class="stat"><span>طلبات الاعتماد</span><strong>'+d.pending.length+'</strong></div><div class="stat"><span>عدد الأصناف</span><strong>'+d.items.length+'</strong></div>';
+ $('pendingCount').textContent='('+d.pending.length+')';
+ options('item',d.items.map(x=>({value:x.name,label:x.name+' — '+x.unit})),'اختر الصنف');
+ options('from',d.places.map(x=>({value:x.name,label:x.name})),'اختر المصدر');
+ options('to',d.places.map(x=>({value:x.name,label:x.name})),'اختر المستلم');
+ if(d.user.role!=='مالك'&&d.user.place){$('from').value=d.user.place;$('to').value=d.user.place;}
+ $('balanceRows').innerHTML=Object.entries(d.summary.locations).map(([n,v])=>'<tr><td>'+esc(n)+'</td><td>'+num(v.qty)+'</td><td>'+num(v.value)+'</td></tr>').join('');
+ $('historyRows').innerHTML=d.recent.map(x=>'<tr><td>'+esc(x.date)+'</td><td>'+esc(x.type)+'</td><td>'+esc(x.from)+'</td><td>'+esc(x.to)+'</td><td>'+esc(x.item)+'</td><td>'+num(x.qty)+' '+esc(x.unit)+'</td></tr>').join('')||'<tr><td colspan="6" class="empty">لا توجد حركات</td></tr>';
+ pendingRender();fields();
+}
+function pendingRender(){
+ if(!DATA.pending.length){$('pendingList').innerHTML='<div class="empty">لا توجد تحويلات بانتظار اعتماد هذا المكان.</div>';return;}
+ $('pendingList').innerHTML=DATA.pending.map(p=>'<article class="pending"><b>'+esc(p.id)+' — '+esc(p.item)+'</b><p>'+esc(p.from)+' ← '+esc(p.to)+'<br>الكمية: '+num(p.qty)+' '+esc(p.unit)+'<br>التاريخ: '+esc(p.date)+'<br>المرسل: '+esc(p.creator)+'<br>ملاحظات: '+esc(p.notes||'—')+'</p><div class="actions"><button class="primary" onclick="decide(\\''+esc(p.id)+'\\')">تأكيد الاستلام</button><button class="danger" onclick="reject(\\''+esc(p.id)+'\\')">رفض التحويل</button></div></article>').join('');
+}
+function fields(){
+ const t=$('type').value, transfer=t==='تحويل', inbound=['شراء','رصيد افتتاحي','تسوية زيادة'].includes(t), outbound=['صرف للتشغيل','هالك','مرتجع للمورد','تسوية عجز'].includes(t);
+ $('fromWrap').classList.toggle('hide',inbound);$('toWrap').classList.toggle('hide',outbound);$('priceWrap').classList.toggle('hide',!['شراء','رصيد افتتاحي'].includes(t));
+ $('from').required=transfer||outbound;$('to').required=transfer||inbound;$('price').required=['شراء','رصيد افتتاحي'].includes(t);
+ $('typeHint').textContent=transfer?'المرسل ينشئ التحويل، والمستلم يؤكد أو يرفض. لا يتغير الرصيد قبل التأكيد.':t==='شراء'?'يسجل الاستلام في المكان المحدد وفق قواعد الاعتماد.':'سيتم تسجيل الحركة وفق صلاحيات المكان.';
+}
+$('type').addEventListener('change',fields);
+document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x===b));['movement','approvals','balances','history'].forEach(x=>$(x).classList.toggle('hide',x!==b.dataset.tab));}));
+$('moveForm').addEventListener('submit',e=>{
+ e.preventDefault();const btn=$('submitBtn');btn.disabled=true;
+ const f={type:$('type').value,item:$('item').value,qty:$('qty').value,from:$('from').value,to:$('to').value,price:$('price').value,date:$('date').value,reference:$('reference').value,notes:$('notes').value};
+ google.script.run.withSuccessHandler(r=>{btn.disabled=false;notice(r.message+' رقم الحركة: '+r.id);$('moveForm').reset();$('date').value=new Date().toISOString().slice(0,10);load();})
+ .withFailureHandler(e=>{btn.disabled=false;notice(e.message||String(e),'err');}).submitMovement(f);
+});
+function decide(id){if(!confirm('تأكيد استلام التحويل '+id+'؟'))return;google.script.run.withSuccessHandler(r=>{notice(r.message);load();}).withFailureHandler(e=>notice(e.message||String(e),'err')).decideMovement(id,'approve','');}
+function reject(id){const reason=prompt('اكتب سبب رفض التحويل:');if(!reason||!reason.trim())return;google.script.run.withSuccessHandler(r=>{notice(r.message);load();}).withFailureHandler(e=>notice(e.message||String(e),'err')).decideMovement(id,'reject',reason);}
+$('date').value=new Date().toISOString().slice(0,10);load();
+</script>
+</body></html>

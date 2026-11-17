@@ -63,10 +63,10 @@ function submitMovement(f){
   return {ok:true,id,status:'بانتظار اعتماد',message:'تم إرسال الحركة ('+clean.length+' أصناف) للاعتماد.'};
  }finally{lock.releaseLock();}
 }
-function decideMovement(id,decision,reason){
+function decideMovement(id,decision,reason,editedItems){
  const pendingSheet=sh(S.pending),movesSheet=sh(S.moves);
  ensureHeaders(pendingSheet,['معرف الحركة','التاريخ','نوع الحركة','من','إلى','الصنف','الكمية','سعر الوحدة','الوحدة','رقم المرجع','ملاحظات','المدخل','وقت الإدخال','الحالة','المعتمد','وقت الاعتماد','آخر تعديل','سبب الرفض']);
- ensureHeaders(movesSheet,['معرف الحركة']);
+ ensureHeaders(movesSheet,['معرف الحركة','التاريخ','نوع الحركة','من (مكان)','إلى (مكان)','الصنف','الكمية','سعر الوحدة (للشراء/الافتتاحي فقط)','الوحدة','القيمة (تلقائي)','رقم المرجع (فاتورة/إذن)','المسؤول','ملاحظات']);
  const u=user(),x=rows(S.pending),matches=[];
  x.a.forEach((r,i)=>{if(i>0&&String(r[x.h['معرف الحركة']])===String(id))matches.push({r,i});});
  if(!matches.length)throw Error('الحركة غير موجودة.');
@@ -76,6 +76,10 @@ function decideMovement(id,decision,reason){
  if(u.role!=='مالك'&&String(first[x.h['المدخل']]).toLowerCase()===u.email)throw Error('لا يمكن اعتماد حركة أنشأتها بنفسك.');
  const shx=sh(S.pending),now=new Date();
  if(decision==='approve'){
+  if(Array.isArray(editedItems)&&editedItems.length){
+   if(editedItems.length!==matches.length)throw Error('عدد الأصناف المعدلة لا يطابق الطلب الأصلي.');
+   editedItems.forEach((v,j)=>{const q=Number(v.qty);if(!(q>0))throw Error('الكمية المستلمة يجب أن تكون أكبر من صفر.');shx.getRange(matches[j].i+1,x.h['الكمية']+1).setValue(q);matches[j].r[x.h['الكمية']]=q;});
+  }
   const mv=sh(S.moves),mh=head(mv.getRange(1,1,1,mv.getLastColumn()).getValues()[0]);
   const existingIds=mh['معرف الحركة']===undefined?new Set():new Set(mv.getDataRange().getValues().slice(1).map(r=>String(r[mh['معرف الحركة']]||'')));
   const toAdd=[];
@@ -113,4 +117,36 @@ function debugConnection(){
   if(it&&it.exists){const s=book.getSheetByName('الأصناف');out.itemCount=s.getRange(3,2,Math.max(1,s.getLastRow()-2),1).getDisplayValues().flat().filter(Boolean).length;}
   if(pl&&pl.exists){const s=book.getSheetByName('الأماكن');out.placeCount=s.getRange(2,1,Math.max(1,s.getLastRow()-1),1).getDisplayValues().flat().filter(x=>x&&!String(x).startsWith('ملاحظة:')).length;}
   return out;
+}
+
+
+// ترحيل آمن لسجل رصيد افتتاحي قديم لا يحتوي على معرف/تاريخ/نوع الحركة.
+// شغّل هذه الدالة مرة واحدة من محرر Apps Script مع رقم صف السجل (غالبًا 2).
+function repairLegacyOpeningBalance(rowNumber){
+ const lock=LockService.getScriptLock();lock.waitLock(30000);
+ try{
+  const ps=sh(S.pending),mh=ensureHeaders(ps,['معرف الحركة','التاريخ','نوع الحركة','من','إلى','الصنف','الكمية','سعر الوحدة','الوحدة','رقم المرجع','ملاحظات','المدخل','وقت الإدخال','الحالة','المعتمد','وقت الاعتماد','آخر تعديل','سبب الرفض']);
+  const row=Number(rowNumber);if(!(row>=2))throw Error('حدد رقم صف صحيحًا.');
+  const values=ps.getRange(row,1,1,ps.getLastColumn()).getValues()[0];
+  if(String(values[mh['الحالة']]||'')!=='معتمد')throw Error('السجل ليس معتمدًا؛ لم يتم إجراء أي تعديل.');
+  if(String(values[mh['نوع الحركة']]||'')&&String(values[mh['معرف الحركة']]||''))throw Error('السجل يحتوي بالفعل على نوع ومعرف حركة.');
+  if(!values[mh['إلى']]||!values[mh['الصنف']]||!(Number(values[mh['الكمية']])>0))throw Error('بيانات المكان أو الصنف أو الكمية غير مكتملة.');
+  const id='MV-LEGACY-'+Utilities.formatDate(new Date(),'Asia/Riyadh','yyyyMMdd-HHmmss')+'-'+row;
+  const rawDate=values[mh['وقت الإدخال']]||new Date();
+  const date=rawDate instanceof Date?rawDate:new Date(rawDate);
+  if(isNaN(date.getTime()))throw Error('تعذر قراءة تاريخ الإدخال.');
+  ps.getRange(row,mh['معرف الحركة']+1).setValue(id);
+  ps.getRange(row,mh['التاريخ']+1).setValue(date);
+  ps.getRange(row,mh['نوع الحركة']+1).setValue('رصيد افتتاحي');
+  const mv=sh(S.moves);
+  const headers=ensureHeaders(mv,['معرف الحركة','التاريخ','نوع الحركة','من (مكان)','إلى (مكان)','الصنف','الكمية','سعر الوحدة (للشراء/الافتتاحي فقط)','الوحدة','القيمة (تلقائي)','رقم المرجع (فاتورة/إذن)','المسؤول','ملاحظات']);
+  const existing=mv.getDataRange().getValues().slice(1).some(r=>String(r[headers['معرف الحركة']]||'')===id);
+  if(!existing){
+   const q=Number(values[mh['الكمية']]),price=Number(values[mh['سعر الوحدة']])||0;
+   const out=makeRow(headers,{'معرف الحركة':id,'التاريخ':date,'نوع الحركة':'رصيد افتتاحي','من (مكان)':'','إلى (مكان)':values[mh['إلى']],'الصنف':values[mh['الصنف']],'الكمية':q,'سعر الوحدة (للشراء/الافتتاحي فقط)':price,'الوحدة':values[mh['الوحدة']],'القيمة (تلقائي)':q*price,'رقم المرجع (فاتورة/إذن)':values[mh['رقم المرجع']],'المسؤول':values[mh['المدخل']],'ملاحظات':values[mh['ملاحظات']]},mv.getLastColumn());
+   mv.getRange(mv.getLastRow()+1,1,1,out.length).setValues([out]);
+  }
+  audit(String(values[mh['المعتمد']]||values[mh['المدخل']]||'system'),'استعادة رصيد افتتاحي قديم',id,'ترحيل آمن من الصف '+row);
+  return {ok:true,id,message:'تم استعادة الرصيد الافتتاحي وترحيله مرة واحدة.'};
+ }finally{lock.releaseLock();}
 }

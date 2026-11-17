@@ -60,9 +60,39 @@ function makeRow(headers,values,width){
  Object.keys(values).forEach(k=>{if(headers[k]!==undefined)row[headers[k]]=values[k];});
  return row;
 }
-function user(){const email=(Session.getActiveUser().getEmail()||'').toLowerCase();if(!email)throw Error('تعذر تحديد بريد المستخدم. تحقق من إعدادات نشر Web App.');const {a,h}=rows(S.users);const r=a.slice(1).find(x=>String(x[h['الإيميل']]||'').trim().toLowerCase()===email);if(!r||!['نعم','yes','true','1'].includes(String(r[h['فعّال']]||'').toLowerCase()))throw Error('المستخدم غير مضاف أو غير مفعل في ورقة الصلاحيات: '+email);return {email,name:r[h['الاسم']]||email,place:r[h['المكان']]||'',role:r[h['الدور']]||'مستخدم مكان'};}
+function user(){
+ const email=(Session.getActiveUser().getEmail()||'').trim().toLowerCase();
+ if(!email)throw Error('تعذر تحديد بريد المستخدم. تحقق من إعدادات نشر Web App.');
+ const {a,h}=rows(S.users),active=a.slice(1).filter(r=>['نعم','yes','true','1'].includes(String(r[h['فعّال']]||'').trim().toLowerCase()));
+ const mine=active.filter(r=>String(r[h['الإيميل']]||'').trim().toLowerCase()===email);
+ if(mine.length!==1)throw Error(mine.length?'يوجد تكرار لحسابك في ورقة الصلاحيات.':'المستخدم غير مضاف أو غير مفعل في ورقة الصلاحيات: '+email);
+ const r=mine[0],role=String(r[h['الدور']]||'مسؤول مكان').trim(),place=String(r[h['المكان']]||'').trim();
+ if(role==='مالك'){
+  if(place)throw Error('حساب المدير العام يجب ألا يرتبط بمكان محدد.');
+ }else{
+  if(!place)throw Error('يجب تحديد مكان واحد للمستخدم.');
+  const same=active.filter(x=>String(x[h['المكان']]||'').trim()===place);
+  if(same.length!==1)throw Error('يوجد أكثر من مستخدم فعّال للمكان '+place+'. يجب أن يكون لكل مكان مسؤول واحد فقط.');
+  if(!['مسؤول مكان','مستخدم مكان'].includes(role))throw Error('الدور غير معتمد. استخدم مالك أو مسؤول مكان.');
+ }
+ return {email,name:r[h['الاسم']]||email,place,role};
+}
 function refs(){const {a,h}=rows(S.items);const items=a.slice(1).filter(r=>r[h['اسم الصنف (فريد)']]).map(r=>({name:String(r[h['اسم الصنف (فريد)']]),unit:String(r[h['الوحدة']]||''),avgCost:Number(r[h['متوسط التكلفة (تلقائي)']]||r[h['سعر مبدئي تقديري (عدّله)']])||0}));const p=rows(S.places);return {items,places:p.a.slice(1).filter(r=>r[p.h['المكان']]&&!String(r[p.h['المكان']]).startsWith('ملاحظة:')).map(r=>({name:String(r[p.h['المكان']]),type:String(r[p.h['النوع']]||'')}))};}
-function getInitialData(){repairKnownLegacyOpeningBalance_();const u=user(),d=refs(),p=pending(u),m=recent();const balances={};d.places.forEach(x=>balances[x.name]={qty:0,value:0});const x=rows(S.moves);x.a.slice(1).forEach(r=>{const q=Number(r[x.h['الكمية']])||0,price=Number(r[x.h['سعر الوحدة (للشراء/الافتتاحي فقط)']])||0,from=r[x.h['من (مكان)']],to=r[x.h['إلى (مكان)']];if(to&&balances[to]){balances[to].qty+=q;balances[to].value+=q*price;}if(from&&balances[from]){balances[from].qty-=q;balances[from].value-=q*price;}});const vals=Object.values(balances);return {user:u,items:d.items,places:d.places,summary:{locations:balances,totalQty:vals.reduce((s,v)=>s+v.qty,0),totalValue:vals.reduce((s,v)=>s+v.value,0)},pending:p,recent:m};}
+function getInitialData(){
+ repairKnownLegacyOpeningBalance_();
+ const u=user(),d=refs(),p=pending(u),m=recent(u),allBalances={};
+ d.places.forEach(x=>allBalances[x.name]={qty:0,value:0});
+ const x=rows(S.moves);
+ x.a.slice(1).forEach(r=>{
+  const q=Number(r[x.h['الكمية']])||0,price=Number(r[x.h['سعر الوحدة (للشراء/الافتتاحي فقط)']])||0;
+  const from=r[x.h['من (مكان)']],to=r[x.h['إلى (مكان)']];
+  if(to&&allBalances[to]){allBalances[to].qty+=q;allBalances[to].value+=q*price;}
+  if(from&&allBalances[from]){allBalances[from].qty-=q;allBalances[from].value-=q*price;}
+ });
+ const balances=u.role==='مالك'?allBalances:{[u.place]:allBalances[u.place]||{qty:0,value:0}};
+ const vals=Object.values(balances);
+ return {user:u,items:d.items,places:d.places,summary:{locations:balances,totalQty:vals.reduce((s,v)=>s+v.qty,0),totalValue:vals.reduce((s,v)=>s+v.value,0)},pending:p,recent:m};
+}
 function pending(u){
  const {a,h}=rows(S.pending),groups={};
  a.slice(1).forEach(r=>{
@@ -72,79 +102,117 @@ function pending(u){
  });
  return Object.values(groups);
 }
-function recent(){const {a,h}=rows(S.moves);return a.slice(1).filter(r=>r[h['الصنف']]).slice(-30).reverse().map(r=>({date:fmtDate(r[h['التاريخ']]),type:r[h['نوع الحركة']],from:r[h['من (مكان)']],to:r[h['إلى (مكان)']],item:r[h['الصنف']],qty:r[h['الكمية']],unit:r[h['الوحدة']]}));}
+function recent(u){
+ const {a,h}=rows(S.moves);
+ return a.slice(1).filter(r=>r[h['الصنف']]&&(u.role==='مالك'||r[h['من (مكان)']]===u.place||r[h['إلى (مكان)']]===u.place)).slice(-30).reverse().map(r=>({date:fmtDate(r[h['التاريخ']]),type:r[h['نوع الحركة']],from:r[h['من (مكان)']],to:r[h['إلى (مكان)']],item:r[h['الصنف']],qty:r[h['الكمية']],unit:r[h['الوحدة']]}));
+}
 function fmtDate(d){return d instanceof Date?Utilities.formatDate(d,'Asia/Riyadh','yyyy-MM-dd'):String(d||'');}
 function audit(u,act,id,detail){const x=sh(S.audit);const a=[new Date(),u,act,id,detail];while(a.length<x.getLastColumn())a.push('');x.appendRow(a);}
 function available(place,item){const {a,h}=rows(S.moves);let n=0;a.slice(1).forEach(r=>{if(r[h['الصنف']]!==item)return;const q=Number(r[h['الكمية']])||0;if(r[h['إلى (مكان)']]===place)n+=q;if(r[h['من (مكان)']]===place)n-=q;});const p=rows(S.pending);p.a.slice(1).forEach(r=>{if(r[p.h['الحالة']]==='بانتظار اعتماد'&&r[p.h['الصنف']]===item&&r[p.h['من']]===place)n-=Number(r[p.h['الكمية']])||0;});return n;}
 function submitMovement(f){
  const lock=LockService.getScriptLock();lock.waitLock(30000);
  try{
-  const u=user(),d=refs(),type=f.type,from=String(f.from||'').trim(),to=String(f.to||'').trim(),items=Array.isArray(f.items)?f.items:[];
+  const u=user(),d=refs(),type=String(f.type||''),validPlaces=d.places.map(x=>x.name);
+  let from=String(f.from||'').trim(),to=String(f.to||'').trim();
+  const items=Array.isArray(f.items)?f.items:[];
+  const transfer=type==='تحويل',purchase=type==='شراء';
+  const inbound=['شراء','رصيد افتتاحي','تسوية زيادة'].includes(type);
+  const outbound=['صرف للتشغيل','هالك','مرتجع للمورد','تسوية عجز'].includes(type);
   if(!items.length)throw Error('أضف صنفًا واحدًا على الأقل.');
-  if(type==='شراء'&&!from)throw Error('اكتب اسم المورد.');
-  if(type==='تحويل'){
-   if(!from||!to||from===to)throw Error('حدد المصدر والمستلم بشكل صحيح.');
-   if(u.role!=='مالك'&&u.place!==from)throw Error('لا يمكنك التحويل من مكان آخر.');
-  }else if(u.role!=='مالك'&&u.place!==(to||from))throw Error('الحركة خارج صلاحية مكانك.');
-  if(type==='رصيد افتتاحي'&&u.role!=='مالك')throw Error('الرصيد الافتتاحي للمالك فقط.');
+  if(!transfer&&!purchase&&!inbound&&!outbound)throw Error('نوع الحركة غير معتمد.');
+  if(u.role!=='مالك'){
+   if(transfer){if(from!==u.place)throw Error('لا يمكنك التحويل إلا من مخزون مكانك.');}
+   else if(inbound){to=u.place;if(purchase){}}
+   else if(outbound){from=u.place;to='';}
+   else throw Error('هذه الحركة غير متاحة لصلاحيتك.');
+  }
+  if(transfer){
+   if(!validPlaces.includes(from)||!validPlaces.includes(to)||from===to)throw Error('حدد مصدرًا ومستلمًا صحيحين.');
+   if(u.role!=='مالك'&&from!==u.place)throw Error('لا يمكنك التحويل من مكان آخر.');
+  }else if(purchase){
+   if(!from)throw Error('اكتب اسم المورد.');
+   if(!validPlaces.includes(to))throw Error('حدد المكان الذي استلم المشتريات.');
+  }else if(inbound){
+   if(type==='رصيد افتتاحي'&&u.role!=='مالك')throw Error('الرصيد الافتتاحي للمدير فقط.');
+   if(!validPlaces.includes(to))throw Error('حدد المكان المستلم للحركة.');
+   from='';
+  }else if(outbound){
+   if(!validPlaces.includes(from))throw Error('حدد المكان الذي ستُصرف منه الكمية.');
+   to='';
+  }
   const clean=items.map(x=>{
    const item=d.items.find(y=>y.name===x.item),q=Number(x.qty),price=Number(x.price)||0;
    if(!item||!(q>0))throw Error('تحقق من الصنف والكمية في جميع السطور.');
-   if(['شراء','رصيد افتتاحي'].includes(type)&&!(price>=0))throw Error('تحقق من سعر الوحدة.');
-   if(type==='تحويل'&&q>available(from,item.name))throw Error('الكمية المطلوبة من الصنف '+item.name+' أكبر من المتاح في '+from+'.');
+   if(purchase||type==='رصيد افتتاحي'){if(!(Number(x.price)>=0))throw Error('أدخل سعر الوحدة بصورة صحيحة.');}
    return {item,q,price};
   });
-  if(type==='تحويل'){
+  if(transfer||outbound){
    const totals={};clean.forEach(x=>totals[x.item.name]=(totals[x.item.name]||0)+x.q);
-   Object.keys(totals).forEach(name=>{if(totals[name]>available(from,name))throw Error('إجمالي الكمية المطلوبة من الصنف '+name+' أكبر من المتاح في '+from+'.');});
+   Object.keys(totals).forEach(name=>{if(totals[name]>available(from,name))throw Error('الكمية المطلوبة من الصنف '+name+' أكبر من المتاح في '+from+'.');});
   }
-  const id='MV-'+Utilities.formatDate(new Date(),'Asia/Riyadh','yyyyMMdd-HHmmss')+'-'+Math.floor(Math.random()*900+100),ps=sh(S.pending),now=new Date();
-  const ph=ensureHeaders(ps,['معرف الحركة','التاريخ','نوع الحركة','من','إلى','الصنف','الكمية','سعر الوحدة','الوحدة','رقم المرجع','ملاحظات','المدخل','وقت الإدخال','الحالة','المعتمد','وقت الاعتماد','آخر تعديل','سبب الرفض']);
-  const fields=clean.map(x=>makeRow(ph,{'معرف الحركة':id,'التاريخ':new Date(f.date+'T12:00:00'),'نوع الحركة':type,'من':from,'إلى':to,'الصنف':x.item.name,'الكمية':x.q,'سعر الوحدة':x.price,'الوحدة':x.item.unit,'رقم المرجع':f.reference||'','ملاحظات':f.notes||'','المدخل':u.email,'وقت الإدخال':now,'الحالة':'بانتظار اعتماد'},ps.getLastColumn()));
-  appendAtFirstDataGap_(ps,fields,Array.from({length:fields[0].length},(_,i)=>i+1),[[1,fields[0].length]]);
-  if(type!=='تحويل'&&u.role==='مالك')decideMovement(id,'approve','');
-  audit(u.email,'إنشاء حركة',id,type+' | '+clean.length+' أصناف');
-  return {ok:true,id,status:'بانتظار اعتماد',message:'تم إرسال الحركة ('+clean.length+' أصناف) للاعتماد.'};
+  const id='MV-'+Utilities.formatDate(new Date(),'Asia/Riyadh','yyyyMMdd-HHmmss')+'-'+Math.floor(Math.random()*900+100);
+  const now=new Date(),date=new Date(String(f.date||'')+'T12:00:00');
+  if(isNaN(date.getTime()))throw Error('أدخل تاريخًا صحيحًا.');
+  const mv=sh(S.moves);
+  const mh=ensureHeaders(mv,['معرف الحركة','التاريخ','نوع الحركة','من (مكان)','إلى (مكان)','الصنف','الكمية','سعر الوحدة (للشراء/الافتتاحي فقط)','الوحدة','القيمة (تلقائي)','رقم المرجع (فاتورة/إذن)','المسؤول','ملاحظات']);
+  const values=clean.map(x=>makeRow(mh,{'معرف الحركة':id,'التاريخ':date,'نوع الحركة':type,'من (مكان)':from,'إلى (مكان)':to,'الصنف':x.item.name,'الكمية':x.q,'سعر الوحدة (للشراء/الافتتاحي فقط)':x.price,'الوحدة':x.item.unit,'القيمة (تلقائي)':x.q*x.price,'رقم المرجع (فاتورة/إذن)':f.reference||'','المسؤول':u.email,'ملاحظات':(purchase?'المورد: '+from+' | ':'')+(f.notes||'')},mv.getLastColumn()));
+  if(transfer){
+   const ps=sh(S.pending),ph=ensureHeaders(ps,['معرف الحركة','التاريخ','نوع الحركة','من','إلى','الصنف','الكمية','سعر الوحدة','الوحدة','رقم المرجع','ملاحظات','المدخل','وقت الإدخال','الحالة','المعتمد','وقت الاعتماد','آخر تعديل','سبب الرفض']);
+   const pendingRows=clean.map(x=>makeRow(ph,{'معرف الحركة':id,'التاريخ':date,'نوع الحركة':type,'من':from,'إلى':to,'الصنف':x.item.name,'الكمية':x.q,'سعر الوحدة':x.price,'الوحدة':x.item.unit,'رقم المرجع':f.reference||'','ملاحظات':f.notes||'','المدخل':u.email,'وقت الإدخال':now,'الحالة':'بانتظار اعتماد'},ps.getLastColumn()));
+   appendAtFirstDataGap_(ps,pendingRows,Array.from({length:pendingRows[0].length},(_,i)=>i+1),[[1,pendingRows[0].length]]);
+   audit(u.email,'إنشاء تحويل',id,from+' إلى '+to+' | '+clean.length+' أصناف');
+   return {ok:true,id,status:'بانتظار اعتماد',message:'تم إرسال التحويل إلى '+to+' وينتظر تأكيد الاستلام.'};
+  }
+  appendMovementRows_(mv,values);
+  audit(u.email,'تسجيل حركة مباشرة',id,type+' | المكان: '+(to||from)+' | '+clean.length+' أصناف');
+  return {ok:true,id,status:'معتمد',message:'تم تسجيل الحركة وتحديث المخزون.'};
  }finally{lock.releaseLock();}
 }
 function decideMovement(id,decision,reason,editedItems){
- const pendingSheet=sh(S.pending),movesSheet=sh(S.moves);
- ensureHeaders(pendingSheet,['معرف الحركة','التاريخ','نوع الحركة','من','إلى','الصنف','الكمية','سعر الوحدة','الوحدة','رقم المرجع','ملاحظات','المدخل','وقت الإدخال','الحالة','المعتمد','وقت الاعتماد','آخر تعديل','سبب الرفض']);
- ensureHeaders(movesSheet,['معرف الحركة','التاريخ','نوع الحركة','من (مكان)','إلى (مكان)','الصنف','الكمية','سعر الوحدة (للشراء/الافتتاحي فقط)','الوحدة','القيمة (تلقائي)','رقم المرجع (فاتورة/إذن)','المسؤول','ملاحظات']);
- const u=user(),x=rows(S.pending),matches=[];
- x.a.forEach((r,i)=>{if(i>0&&String(r[x.h['معرف الحركة']])===String(id))matches.push({r,i});});
- if(!matches.length)throw Error('الحركة غير موجودة.');
- const first=matches[0].r,from=first[x.h['من']],to=first[x.h['إلى']];
- if(matches.some(z=>z.r[x.h['الحالة']]!=='بانتظار اعتماد'))throw Error('تمت معالجة جزء من الطلب مسبقًا؛ راجع سجل الحركات قبل إعادة المحاولة.');
- if(u.role!=='مالك'&&u.place!==to)throw Error('الاعتماد متاح للمكان المستلم فقط.');
- if(u.role!=='مالك'&&String(first[x.h['المدخل']]).toLowerCase()===u.email)throw Error('لا يمكن اعتماد حركة أنشأتها بنفسك.');
- const shx=sh(S.pending),now=new Date();
- if(decision==='approve'){
-  if(Array.isArray(editedItems)&&editedItems.length){
-   if(editedItems.length!==matches.length)throw Error('عدد الأصناف المعدلة لا يطابق الطلب الأصلي.');
-   editedItems.forEach((v,j)=>{const q=Number(v.qty);if(!(q>0))throw Error('الكمية المستلمة يجب أن تكون أكبر من صفر.');shx.getRange(matches[j].i+1,x.h['الكمية']+1).setValue(q);matches[j].r[x.h['الكمية']]=q;});
+ const lock=LockService.getScriptLock();lock.waitLock(30000);
+ try{
+  const pendingSheet=sh(S.pending),movesSheet=sh(S.moves);
+  const x=rows(S.pending),matches=[];
+  const u=user();
+  x.a.forEach((r,i)=>{if(i>0&&String(r[x.h['معرف الحركة']])===String(id))matches.push({r,i});});
+  if(!matches.length)throw Error('التحويل غير موجود.');
+  const first=matches[0].r,from=String(first[x.h['من']]||''),to=String(first[x.h['إلى']]||'');
+  if(first[x.h['نوع الحركة']]!=='تحويل')throw Error('اعتماد الطلبات متاح للتحويلات فقط.');
+  if(matches.some(z=>z.r[x.h['الحالة']]!=='بانتظار اعتماد'))throw Error('تمت معالجة هذا التحويل مسبقًا.');
+  if(u.role!=='مالك'&&u.place!==to)throw Error('تأكيد الاستلام متاح لمسؤول المكان المستلم فقط.');
+  if(u.role!=='مالك'&&String(first[x.h['المدخل']]||'').toLowerCase()===u.email)throw Error('لا يمكنك تأكيد تحويل أنشأته بنفسك.');
+  if(decision==='approve'){
+   if(!Array.isArray(editedItems)||editedItems.length!==matches.length)throw Error('راجع كميات جميع الأصناف قبل التأكيد.');
+   const totals={};
+   editedItems.forEach((v,j)=>{
+    const q=Number(v.qty),sent=Number(matches[j].r[x.h['الكمية']])||0;
+    if(!(q>0)||q>sent)throw Error('الكمية المستلمة يجب أن تكون أكبر من صفر ولا تتجاوز الكمية المرسلة.');
+    const item=String(matches[j].r[x.h['الصنف']]);totals[item]=(totals[item]||0)+sent;
+   });
+   Object.keys(totals).forEach(item=>{if(totals[item]>available(from,item)+totals[item])throw Error('الرصيد المتاح في المصدر غير كافٍ للصنف '+item+'.');});
+   const mh=ensureHeaders(movesSheet,['معرف الحركة','التاريخ','نوع الحركة','من (مكان)','إلى (مكان)','الصنف','الكمية','سعر الوحدة (للشراء/الافتتاحي فقط)','الوحدة','القيمة (تلقائي)','رقم المرجع (فاتورة/إذن)','المسؤول','ملاحظات']);
+   const toAdd=matches.map(({r},j)=>{
+    const q=Number(editedItems[j].qty),price=Number(r[x.h['سعر الوحدة']])||0;
+    return makeRow(mh,{'معرف الحركة':id,'التاريخ':r[x.h['التاريخ']],'نوع الحركة':'تحويل','من (مكان)':from,'إلى (مكان)':to,'الصنف':r[x.h['الصنف']],'الكمية':q,'سعر الوحدة (للشراء/الافتتاحي فقط)':price,'الوحدة':r[x.h['الوحدة']],'القيمة (تلقائي)':q*price,'رقم المرجع (فاتورة/إذن)':r[x.h['رقم المرجع']],'المسؤول':r[x.h['المدخل']],'ملاحظات':String(r[x.h['ملاحظات']]||'')+(q<Number(r[x.h['الكمية']])?' | فرق الاستلام: أرسل '+r[x.h['الكمية']]+' واستلم '+q:'')},movesSheet.getLastColumn());
+   });
+   appendMovementRows_(movesSheet,toAdd);
+   matches.forEach(({i},j)=>{
+    const row=i+1;pendingSheet.getRange(row,x.h['الكمية']+1).setValue(Number(editedItems[j].qty));
+    pendingSheet.getRange(row,x.h['الحالة']+1).setValue('معتمد');
+    if(x.h['المعتمد']!==undefined)pendingSheet.getRange(row,x.h['المعتمد']+1).setValue(u.email);
+    if(x.h['وقت الاعتماد']!==undefined)pendingSheet.getRange(row,x.h['وقت الاعتماد']+1).setValue(new Date());
+   });
+   audit(u.email,'تأكيد استلام تحويل',id,from+' إلى '+to+' | '+matches.length+' أصناف');
+   return {ok:true,message:'تم تأكيد الاستلام وترحيل الكميات المستلمة.'};
   }
-  const mv=sh(S.moves),mh=head(mv.getRange(1,1,1,mv.getLastColumn()).getValues()[0]);
-  const existingIds=mh['معرف الحركة']===undefined?new Set():new Set(mv.getDataRange().getValues().slice(1).map(r=>String(r[mh['معرف الحركة']]||'')));
-  const toAdd=[];
-  matches.forEach(({r})=>{
-   const item=r[x.h['الصنف']],qty=Number(r[x.h['الكمية']])||0;
-   if(!r[x.h['نوع الحركة']]||!r[x.h['التاريخ']])throw Error('بيانات الحركة ناقصة: نوع الحركة أو التاريخ. لا يمكن ترحيلها بأمان.');
-   if(r[x.h['نوع الحركة']]==='تحويل'&&qty>available(from,item)+qty)throw Error('تعذر التحقق من الرصيد للصنف: '+item);
-   if(!existingIds.has(String(id))){
-    toAdd.push(makeRow(mh,{'معرف الحركة':id,'التاريخ':r[x.h['التاريخ']],'نوع الحركة':r[x.h['نوع الحركة']],'من (مكان)':from,'إلى (مكان)':to,'الصنف':item,'الكمية':qty,'سعر الوحدة (للشراء/الافتتاحي فقط)':Number(r[x.h['سعر الوحدة']])||0,'الوحدة':r[x.h['الوحدة']],'القيمة (تلقائي)':qty*(Number(r[x.h['سعر الوحدة']])||0),'رقم المرجع (فاتورة/إذن)':r[x.h['رقم المرجع']],'المسؤول':r[x.h['المدخل']],'ملاحظات':r[x.h['ملاحظات']]},mv.getLastColumn()));
-   }
-  });
-  if(toAdd.length)appendMovementRows_(mv,toAdd);
-  matches.forEach(({i})=>{shx.getRange(i+1,x.h['الحالة']+1).setValue('معتمد');if(x.h['المعتمد']!==undefined)shx.getRange(i+1,x.h['المعتمد']+1).setValue(u.email);if(x.h['وقت الاعتماد']!==undefined)shx.getRange(i+1,x.h['وقت الاعتماد']+1).setValue(now);});
-  audit(u.email,'اعتماد حركة',id,matches.length+' أصناف');return {ok:true,message:'تم اعتماد وترحيل الطلب كاملًا ('+matches.length+' أصناف).'};
- }
- if(decision==='reject'){
-  if(!String(reason||'').trim())throw Error('اكتب سبب الرفض.');
-  matches.forEach(({i})=>{shx.getRange(i+1,x.h['الحالة']+1).setValue('مرفوض');shx.getRange(i+1,x.h['المعتمد']+1).setValue(u.email);shx.getRange(i+1,x.h['وقت الاعتماد']+1).setValue(now);if(x.h['سبب الرفض']!==undefined)shx.getRange(i+1,x.h['سبب الرفض']+1).setValue(reason);});
-  audit(u.email,'رفض حركة',id,reason+' | '+matches.length+' أصناف');return {ok:true,message:'تم رفض الطلب كاملًا.'};
- }
- throw Error('قرار غير صحيح.');
+  if(decision==='reject'){
+   if(!String(reason||'').trim())throw Error('اكتب سبب الرفض.');
+   matches.forEach(({i})=>{const row=i+1;pendingSheet.getRange(row,x.h['الحالة']+1).setValue('مرفوض');if(x.h['المعتمد']!==undefined)pendingSheet.getRange(row,x.h['المعتمد']+1).setValue(u.email);if(x.h['وقت الاعتماد']!==undefined)pendingSheet.getRange(row,x.h['وقت الاعتماد']+1).setValue(new Date());if(x.h['سبب الرفض']!==undefined)pendingSheet.getRange(row,x.h['سبب الرفض']+1).setValue(reason);});
+   audit(u.email,'رفض تحويل',id,reason);
+   return {ok:true,message:'تم رفض التحويل مع تسجيل السبب.'};
+  }
+  throw Error('قرار غير صحيح.');
+ }finally{lock.releaseLock();}
 }
 
 function debugConnection(){

@@ -288,6 +288,107 @@ function invoiceArchive_(u){
  }));
 }
 
+
+// إعدادات Gemini محفوظة على الخادم فقط؛ لا تُرسل إلى المتصفح.
+const GEMINI_MODEL_='gemini-3.8-flash';
+const GEMINI_KEY_PROPERTY_='GEMINI_API_KEY';
+
+function invoiceArchiveRow_(fileId,u){
+ const data=rows_('أرشيف الفواتير');
+ const index=data.a.slice(1).findIndex(r=>String(r[data.h['معرف ملف Drive']]||'')===String(fileId));
+ if(index<0)throw Error('الفاتورة غير موجودة في الأرشيف.');
+ const row=data.a[index+1];
+ if(u.role!=='مالك'&&String(row[data.h['رافع المستند']]||'').toLowerCase()!==u.email&&String(row[data.h['المكان']]||'')!==u.place)throw Error('لا تملك صلاحية الوصول إلى هذه الفاتورة.');
+ return {row,index,headers:data.h,sheet:sh_('أرشيف الفواتير')};
+}
+
+function invoiceLearningExamples_(){
+ const book=ss_();let sheet=book.getSheetByName('تعلم_الفواتير');
+ if(!sheet)return [];
+ const values=sheet.getDataRange().getValues();
+ if(values.length<2)return [];
+ const h=head_(values[0]);
+ return values.slice(1).filter(r=>r[h['وصف الفاتورة']]&&r[h['الصنف الصحيح']])
+  .slice(-30).map(r=>({description:String(r[h['وصف الفاتورة']]),item:String(r[h['الصنف الصحيح']]),unit:String(r[h['الوحدة الصحيحة']]||'')})).slice(-20);
+}
+
+function extractInvoiceData(fileId){
+ const u=user_();
+ if(!fileId)throw Error('لم يتم تحديد ملف الفاتورة.');
+ const archived=invoiceArchiveRow_(fileId,u);
+ const apiKey=PropertiesService.getScriptProperties().getProperty(GEMINI_KEY_PROPERTY_);
+ if(!apiKey)throw Error('لم يتم إعداد مفتاح Gemini على الخادم. أضف GEMINI_API_KEY في Script Properties داخل Apps Script ثم أعد المحاولة.');
+ const file=DriveApp.getFileById(String(fileId));
+ const blob=file.getBlob(),bytes=blob.getBytes(),mime=String(blob.getContentType()||'').toLowerCase();
+ if(!['application/pdf','image/jpeg','image/png','image/webp'].includes(mime))throw Error('صيغة الفاتورة غير مدعومة للاستخراج.');
+ if(bytes.length>8*1024*1024)throw Error('حجم الفاتورة يتجاوز حد الاستخراج البالغ 8 ميجابايت.');
+ const examples=invoiceLearningExamples_();
+ const catalog=refs_().items.map(x=>({name:x.name,unit:x.unit}));
+ const prompt=[
+  'أنت محاسب ومختص OCR لفواتير المشتريات العربية والسعودية. اقرأ المستند المرفق بصريًا واستخرج البيانات الظاهرة فقط.',
+  'أعد JSON صالحًا فقط بالمفاتيح التالية: supplier, invoice_number, invoice_date, currency, subtotal, vat_amount, total, items.',
+  'كل عنصر في items يجب أن يحتوي: description, suggested_item, quantity, unit, unit_price, line_total, confidence, notes.',
+  'قواعد صارمة: لا تخمّن ولا تكمل رقمًا غير واضح. إذا لم تستطع قراءة قيمة أعد null. الأرقام كقيم رقمية لا كنصوص. التاريخ بصيغة YYYY-MM-DD إذا أمكن وإلا null.',
+  'انتبه لاتجاه العربية، الفواصل العشرية، الكميات العشرية، الوحدات، الخصومات، وضريبة القيمة المضافة. لا تعتبر رقم الباركود كمية أو سعرًا.',
+  'لا تخلط بين إجمالي السطر وسعر الوحدة. إذا كان الإجمالي ظاهرًا فقط اترك unit_price null. لا تضف الأصناف غير الموجودة في الفاتورة.',
+  'اقرأ كل صفحات PDF وكل أجزاء الفاتورة. إذا كانت الصورة غير واضحة أشر لذلك في notes ولا تخترع بيانات.',
+  'كتالوج الأصناف المعتمد بالمخزون (استخدم suggested_item فقط عند وجود تطابق واضح، وإلا null): '+JSON.stringify(catalog),
+  'أمثلة تصحيحات بشرية سابقة (استفد منها لمطابقة أوصاف الموردين بالأصناف، ولا تنسخ كميات أو أسعار): '+JSON.stringify(examples),
+  'أعد البنية التالية فقط: {"supplier":null,"invoice_number":null,"invoice_date":null,"currency":"SAR","subtotal":null,"vat_amount":null,"total":null,"items":[{"description":"","suggested_item":null,"quantity":null,"unit":null,"unit_price":null,"line_total":null,"confidence":"low|medium|high","notes":""}]}'
+ ].join('\n');
+ const body={
+  contents:[{role:'user',parts:[{text:prompt},{inline_data:{mime_type:mime,data:Utilities.base64Encode(bytes)}}]}],
+  generationConfig:{temperature:0.1,maxOutputTokens:8192,responseMimeType:'application/json'}
+ };
+ const endpoint='https://generativelanguage.googleapis.com/v1beta/models/'+GEMINI_MODEL_+':generateContent';
+ const response=UrlFetchApp.fetch(endpoint,{method:'post',contentType:'application/json',headers:{'x-goog-api-key':apiKey},payload:JSON.stringify(body),muteHttpExceptions:true});
+ const status=response.getResponseCode(),responseText=response.getContentText();
+ if(status<200||status>=300){
+  let detail=responseText;try{const parsed=JSON.parse(responseText);detail=parsed.error?.message||responseText;}catch(e){}
+  throw Error('تعذر استخراج الفاتورة من Gemini ('+status+'): '+String(detail).slice(0,500));
+ }
+ let envelope;try{envelope=JSON.parse(responseText);}catch(e){throw Error('استجابة Gemini غير مفهومة.');}
+ const raw=(envelope.candidates?.[0]?.content?.parts||[]).map(p=>p.text||'').join('').trim();
+ if(!raw)throw Error('لم يُرجع Gemini نصًا قابلًا للاستخراج. قد تكون الصورة غير واضحة أو محجوبة.');
+ let result;try{result=JSON.parse(raw.replace(/^\x60\x60\x60(?:json)?\s*/i,'').replace(/\s*\x60\x60\x60$/,''));}catch(e){throw Error('تعذر تحليل نتيجة استخراج الفاتورة. أعد تصويرها بصورة أوضح.');}
+ if(!Array.isArray(result.items))throw Error('لم يتمكن Gemini من تحديد بنود الفاتورة.');
+ const items=result.items.map(x=>({
+  description:String(x.description||'').trim(),
+  suggested_item:x.suggested_item?String(x.suggested_item).trim():'',
+  quantity:x.quantity===null||x.quantity===undefined?'':Number(x.quantity),
+  unit:String(x.unit||''),
+  unit_price:x.unit_price===null||x.unit_price===undefined?'':Number(x.unit_price),
+  line_total:x.line_total===null||x.line_total===undefined?'':Number(x.line_total),
+  confidence:['high','medium','low'].includes(String(x.confidence||'').toLowerCase())?String(x.confidence).toLowerCase():'low',
+  notes:String(x.notes||'')
+ })).filter(x=>x.description||x.quantity!==''||x.line_total!=='');
+ if(!items.length)throw Error('لم يتم العثور على بنود مقروءة. جرّب تصوير الفاتورة بشكل مستقيم وبإضاءة جيدة.');
+ return {
+  ok:true,model:GEMINI_MODEL_,
+  invoice:{supplier:String(result.supplier||''),invoice_number:String(result.invoice_number||''),invoice_date:String(result.invoice_date||''),currency:String(result.currency||'SAR'),subtotal:result.subtotal??'',vat_amount:result.vat_amount??'',total:result.total??''},
+  items
+ };
+}
+
+function saveInvoiceLearning(payload){
+ const u=user_();
+ if(!payload||!payload.fileId||!Array.isArray(payload.originalItems)||!Array.isArray(payload.correctedItems))throw Error('بيانات التصحيح غير مكتملة.');
+ invoiceArchiveRow_(payload.fileId,u);
+ if(payload.originalItems.length!==payload.correctedItems.length)throw Error('عدد البنود المصححة لا يطابق عدد البنود المستخرجة.');
+ const book=ss_();let sheet=book.getSheetByName('تعلم_الفواتير');
+ if(!sheet){sheet=book.insertSheet('تعلم_الفواتير');sheet.appendRow(['تاريخ التصحيح','المستخدم','معرف الفاتورة','وصف الفاتورة','الصنف المقترح من AI','الصنف الصحيح','الوحدة المستخرجة','الوحدة الصحيحة']);}
+ const now=new Date(),rows=[];
+ payload.correctedItems.forEach((x,i)=>{
+  const original=payload.originalItems[i]||{};
+  const description=String(original.description||'').trim(),item=String(x.item||'').trim();
+  if(description&&item)rows.push([now,u.email,String(payload.fileId),description,String(original.suggested_item||''),item,String(original.unit||''),String(x.unit||'')]);
+ });
+ if(!rows.length)throw Error('لا توجد تصحيحات صنف قابلة للحفظ.');
+ sheet.getRange(sheet.getLastRow()+1,1,rows.length,rows[0].length).setValues(rows);
+ audit_(u.email,'تعليم مستمر لاستخراج الفواتير',String(payload.fileId),'حفظ '+rows.length+' تصحيحًا بشريًا للاستفادة منها في المطابقات القادمة.');
+ return {ok:true,message:'تم حفظ تصحيحاتك لتُستخدم كأمثلة في عمليات استخراج الفواتير القادمة.'};
+}
+
 function debugConnection(){
  const auth=user_(),out={activeEmail:String(Session.getActiveUser().getEmail()||''),authorization:auth,sheets:{}},book=ss_();
  ['الأصناف','الأماكن','الصلاحيات','الحركات','الحركات_المعلقة','سجل_التدقيق'].forEach(n=>{

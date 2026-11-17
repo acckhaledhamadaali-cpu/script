@@ -5,6 +5,17 @@ function ss(){return SpreadsheetApp.openById(SPREADSHEET_ID);}
 function sh(n){const x=ss().getSheetByName(n);if(!x)throw Error('الورقة غير موجودة: '+n);return x;}
 function head(r){const o={};r.forEach((v,i)=>o[String(v).trim()]=i);return o;}
 function rows(n){const a=sh(n).getDataRange().getValues();return {a,h:head(a[0])};}
+function ensureHeaders(sheet,required){
+ const lastCol=Math.max(sheet.getLastColumn(),1);
+ const header=sheet.getRange(1,1,1,lastCol).getValues()[0].map(v=>String(v||'').trim());
+ required.forEach(name=>{if(!header.includes(name)){header.push(name);sheet.getRange(1,header.length).setValue(name);}});
+ return head(header);
+}
+function makeRow(headers,values,width){
+ const row=Array(width).fill('');
+ Object.keys(values).forEach(k=>{if(headers[k]!==undefined)row[headers[k]]=values[k];});
+ return row;
+}
 function user(){const email=(Session.getActiveUser().getEmail()||'').toLowerCase();if(!email)throw Error('تعذر تحديد بريد المستخدم. تحقق من إعدادات نشر Web App.');const {a,h}=rows(S.users);const r=a.slice(1).find(x=>String(x[h['الإيميل']]||'').trim().toLowerCase()===email);if(!r||!['نعم','yes','true','1'].includes(String(r[h['فعّال']]||'').toLowerCase()))throw Error('المستخدم غير مضاف أو غير مفعل في ورقة الصلاحيات: '+email);return {email,name:r[h['الاسم']]||email,place:r[h['المكان']]||'',role:r[h['الدور']]||'مستخدم مكان'};}
 function refs(){const {a,h}=rows(S.items);const items=a.slice(1).filter(r=>r[h['اسم الصنف (فريد)']]).map(r=>({name:String(r[h['اسم الصنف (فريد)']]),unit:String(r[h['الوحدة']]||''),avgCost:Number(r[h['متوسط التكلفة (تلقائي)']]||r[h['سعر مبدئي تقديري (عدّله)']])||0}));const p=rows(S.places);return {items,places:p.a.slice(1).filter(r=>r[p.h['المكان']]&&!String(r[p.h['المكان']]).startsWith('ملاحظة:')).map(r=>({name:String(r[p.h['المكان']]),type:String(r[p.h['النوع']]||'')}))};}
 function getInitialData(){const u=user(),d=refs(),p=pending(u),m=recent();const balances={};d.places.forEach(x=>balances[x.name]={qty:0,value:0});const x=rows(S.moves);x.a.slice(1).forEach(r=>{const q=Number(r[x.h['الكمية']])||0,price=Number(r[x.h['سعر الوحدة (للشراء/الافتتاحي فقط)']])||0,from=r[x.h['من (مكان)']],to=r[x.h['إلى (مكان)']];if(to&&balances[to]){balances[to].qty+=q;balances[to].value+=q*price;}if(from&&balances[from]){balances[from].qty-=q;balances[from].value-=q*price;}});const vals=Object.values(balances);return {user:u,items:d.items,places:d.places,summary:{locations:balances,totalQty:vals.reduce((s,v)=>s+v.qty,0),totalValue:vals.reduce((s,v)=>s+v.value,0)},pending:p,recent:m};}
@@ -44,14 +55,18 @@ function submitMovement(f){
    Object.keys(totals).forEach(name=>{if(totals[name]>available(from,name))throw Error('إجمالي الكمية المطلوبة من الصنف '+name+' أكبر من المتاح في '+from+'.');});
   }
   const id='MV-'+Utilities.formatDate(new Date(),'Asia/Riyadh','yyyyMMdd-HHmmss')+'-'+Math.floor(Math.random()*900+100),ps=sh(S.pending),now=new Date();
-  const rowsToAdd=clean.map(x=>{const row=[id,new Date(f.date+'T12:00:00'),type,from,to,x.item.name,x.q,x.price,x.item.unit,f.reference||'',f.notes||'',u.email,now,'بانتظار اعتماد','','','',''];while(row.length<ps.getLastColumn())row.push('');return row;});
-  ps.getRange(ps.getLastRow()+1,1,rowsToAdd.length,rowsToAdd[0].length).setValues(rowsToAdd);
+  const ph=ensureHeaders(ps,['معرف الحركة','التاريخ','نوع الحركة','من','إلى','الصنف','الكمية','سعر الوحدة','الوحدة','رقم المرجع','ملاحظات','المدخل','وقت الإدخال','الحالة','المعتمد','وقت الاعتماد','آخر تعديل','سبب الرفض']);
+  const fields=clean.map(x=>makeRow(ph,{'معرف الحركة':id,'التاريخ':new Date(f.date+'T12:00:00'),'نوع الحركة':type,'من':from,'إلى':to,'الصنف':x.item.name,'الكمية':x.q,'سعر الوحدة':x.price,'الوحدة':x.item.unit,'رقم المرجع':f.reference||'','ملاحظات':f.notes||'','المدخل':u.email,'وقت الإدخال':now,'الحالة':'بانتظار اعتماد'},ps.getLastColumn()));
+  ps.getRange(ps.getLastRow()+1,1,fields.length,fields[0].length).setValues(fields);
   if(type!=='تحويل'&&u.role==='مالك')decideMovement(id,'approve','');
   audit(u.email,'إنشاء حركة',id,type+' | '+clean.length+' أصناف');
   return {ok:true,id,status:'بانتظار اعتماد',message:'تم إرسال الحركة ('+clean.length+' أصناف) للاعتماد.'};
  }finally{lock.releaseLock();}
 }
 function decideMovement(id,decision,reason){
+ const pendingSheet=sh(S.pending),movesSheet=sh(S.moves);
+ ensureHeaders(pendingSheet,['معرف الحركة','التاريخ','نوع الحركة','من','إلى','الصنف','الكمية','سعر الوحدة','الوحدة','رقم المرجع','ملاحظات','المدخل','وقت الإدخال','الحالة','المعتمد','وقت الاعتماد','آخر تعديل','سبب الرفض']);
+ ensureHeaders(movesSheet,['معرف الحركة']);
  const u=user(),x=rows(S.pending),matches=[];
  x.a.forEach((r,i)=>{if(i>0&&String(r[x.h['معرف الحركة']])===String(id))matches.push({r,i});});
  if(!matches.length)throw Error('الحركة غير موجودة.');
@@ -61,15 +76,19 @@ function decideMovement(id,decision,reason){
  if(u.role!=='مالك'&&String(first[x.h['المدخل']]).toLowerCase()===u.email)throw Error('لا يمكن اعتماد حركة أنشأتها بنفسك.');
  const shx=sh(S.pending),now=new Date();
  if(decision==='approve'){
-  const mv=sh(S.moves),toAdd=[];
-  matches.forEach(({r,i})=>{
+  const mv=sh(S.moves),mh=head(mv.getRange(1,1,1,mv.getLastColumn()).getValues()[0]);
+  const existingIds=mh['معرف الحركة']===undefined?new Set():new Set(mv.getDataRange().getValues().slice(1).map(r=>String(r[mh['معرف الحركة']]||'')));
+  const toAdd=[];
+  matches.forEach(({r})=>{
    const item=r[x.h['الصنف']],qty=Number(r[x.h['الكمية']])||0;
+   if(!r[x.h['نوع الحركة']]||!r[x.h['التاريخ']])throw Error('بيانات الحركة ناقصة: نوع الحركة أو التاريخ. لا يمكن ترحيلها بأمان.');
    if(r[x.h['نوع الحركة']]==='تحويل'&&qty>available(from,item)+qty)throw Error('تعذر التحقق من الرصيد للصنف: '+item);
-   shx.getRange(i+1,x.h['الحالة']+1).setValue('معتمد');shx.getRange(i+1,x.h['المعتمد']+1).setValue(u.email);shx.getRange(i+1,x.h['وقت الاعتماد']+1).setValue(now);
-   const v=[r[x.h['التاريخ']],r[x.h['نوع الحركة']],from,to,item,qty,r[x.h['سعر الوحدة']],r[x.h['الوحدة']],qty*Number(r[x.h['سعر الوحدة']]||0),r[x.h['رقم المرجع']],r[x.h['المدخل']],r[x.h['ملاحظات']]];
-   while(v.length<mv.getLastColumn())v.push('');toAdd.push(v);
+   if(!existingIds.has(String(id))){
+    toAdd.push(makeRow(mh,{'معرف الحركة':id,'التاريخ':r[x.h['التاريخ']],'نوع الحركة':r[x.h['نوع الحركة']],'من (مكان)':from,'إلى (مكان)':to,'الصنف':item,'الكمية':qty,'سعر الوحدة (للشراء/الافتتاحي فقط)':Number(r[x.h['سعر الوحدة']])||0,'الوحدة':r[x.h['الوحدة']],'القيمة (تلقائي)':qty*(Number(r[x.h['سعر الوحدة']])||0),'رقم المرجع (فاتورة/إذن)':r[x.h['رقم المرجع']],'المسؤول':r[x.h['المدخل']],'ملاحظات':r[x.h['ملاحظات']]},mv.getLastColumn()));
+   }
   });
   if(toAdd.length)mv.getRange(mv.getLastRow()+1,1,toAdd.length,toAdd[0].length).setValues(toAdd);
+  matches.forEach(({i})=>{shx.getRange(i+1,x.h['الحالة']+1).setValue('معتمد');if(x.h['المعتمد']!==undefined)shx.getRange(i+1,x.h['المعتمد']+1).setValue(u.email);if(x.h['وقت الاعتماد']!==undefined)shx.getRange(i+1,x.h['وقت الاعتماد']+1).setValue(now);});
   audit(u.email,'اعتماد حركة',id,matches.length+' أصناف');return {ok:true,message:'تم اعتماد وترحيل الطلب كاملًا ('+matches.length+' أصناف).'};
  }
  if(decision==='reject'){

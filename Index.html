@@ -79,7 +79,10 @@ function render(d){
 }
 function pendingRender(){
  if(!DATA.pending.length){$('pendingList').innerHTML='<div class="empty">لا توجد تحويلات بانتظار اعتماد هذا المكان.</div>';return;}
- $('pendingList').innerHTML=DATA.pending.map(p=>'<article class="pending"><b>'+esc(p.id)+' — '+esc(p.item)+'</b><p>'+esc(p.from)+' ← '+esc(p.to)+'<br>الكمية: '+num(p.qty)+' '+esc(p.unit)+'<br>التاريخ: '+esc(p.date)+'<br>المرسل: '+esc(p.creator)+'<br>ملاحظات: '+esc(p.notes||'—')+'</p><div class="actions"><button class="primary" onclick="decide(\\''+esc(p.id)+'\\')">تأكيد الاستلام</button><button class="danger" onclick="reject(\\''+esc(p.id)+'\\')">رفض التحويل</button></div></article>').join('');
+ $('pendingList').innerHTML=DATA.pending.map(p=>`<article class="pending"><b>${esc(p.id)} — ${esc(p.item)}</b><p>${esc(p.from)} ← ${esc(p.to)}<br>الكمية: ${num(p.qty)} ${esc(p.unit)}<br>التاريخ: ${esc(p.date)}<br>المرسل: ${esc(p.creator)}<br>ملاحظات: ${esc(p.notes||'—')}</p><div class="actions"><button class="primary" type="button" data-action="approve" data-id="${esc(p.id)}">تأكيد الاستلام</button><button class="danger" type="button" data-action="reject" data-id="${esc(p.id)}">رفض التحويل</button></div></article>`).join('');
+ $('pendingList').querySelectorAll('button[data-action]').forEach(btn=>btn.addEventListener('click',()=>{
+   if(btn.dataset.action==='approve')decide(btn.dataset.id);else reject(btn.dataset.id);
+ }));
 }
 function fields(){
  const t=$('type').value, transfer=t==='تحويل', inbound=['شراء','رصيد افتتاحي','تسوية زيادة'].includes(t), outbound=['صرف للتشغيل','هالك','مرتجع للمورد','تسوية عجز'].includes(t);

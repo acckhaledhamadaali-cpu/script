@@ -46,7 +46,7 @@
     </div><p class="hint" id="typeHint">التحويل يظل معلقًا حتى يؤكد المكان المستلم الاستلام.</p>
     <div class="actions"><button class="primary" id="submitBtn">إرسال الحركة</button><button class="secondary" type="reset">مسح الحقول</button></div></form>
   </section>
-  <section id="approvals" class="panel hide"><h2>التحويلات بانتظار اعتماد المكان المستلم</h2><div id="pendingList" class="cards"></div></section>
+  <section id="approvals" class="panel hide"><h2>طلبات الاستلام بانتظار مراجعة المكان المستلم</h2><div id="pendingList" class="cards"></div></section>
   <section id="balances" class="panel hide"><h2>ملخص أرصدة الأماكن</h2><div class="tablewrap"><table><thead><tr><th>المكان</th><th>الكمية الصافية</th><th>القيمة التقديرية (ر.س)</th></tr></thead><tbody id="balanceRows"></tbody></table></div></section>
   <section id="history" class="panel hide"><h2>آخر الحركات المعتمدة</h2><div class="tablewrap"><table><thead><tr><th>التاريخ</th><th>النوع</th><th>من</th><th>إلى</th><th>الصنف</th><th>الكمية</th></tr></thead><tbody id="historyRows"></tbody></table></div></section>
   <p class="hint">لا يتغير الرصيد بسبب التحويل إلا بعد الاعتماد. جميع عمليات الاعتماد والرفض تُسجل في سجل التدقيق.</p>
@@ -86,9 +86,9 @@ function render(d){
 }
 function pendingRender(){
  if(!DATA.pending.length){$('pendingList').innerHTML='<div class="empty">لا توجد تحويلات بانتظار اعتماد هذا المكان.</div>';return;}
- $('pendingList').innerHTML=DATA.pending.map(p=>`<article class="pending"><b>${esc(p.id)} — ${p.items.length} أصناف</b><p>${p.items.map(x=>esc(x.item)+' : '+num(x.qty)+' '+esc(x.unit)).join('<br>')}<br><br>${esc(p.from)} ← ${esc(p.to)}<br>التاريخ: ${esc(p.date)}<br>المرسل: ${esc(p.creator)}<br>ملاحظات: ${esc(p.notes||'—')}</p><div class="actions"><button class="primary" type="button" data-action="approve" data-id="${esc(p.id)}">تأكيد استلام الطلب كاملًا</button><button class="danger" type="button" data-action="reject" data-id="${esc(p.id)}">رفض الطلب كاملًا</button></div></article>`).join('');
+ $('pendingList').innerHTML=DATA.pending.map(p=>`<article class="pending" data-request="${esc(p.id)}"><b>${esc(p.id)} — ${p.items.length} أصناف</b><p>${esc(p.from)} ← ${esc(p.to)}<br>التاريخ: ${esc(p.date)}<br>المرسل: ${esc(p.creator)}<br>ملاحظات: ${esc(p.notes||'—')}</p>${p.items.map((x,i)=>'<div style="display:grid;grid-template-columns:1fr 110px;gap:8px;align-items:center;margin:8px 0"><label>'+esc(x.item)+' ('+esc(x.unit)+')</label><input class="received-qty" data-index="'+i+'" type="number" min="0.001" step="0.001" value="'+esc(x.qty)+'" aria-label="الكمية المستلمة"></div>').join('')}<div class="hint">راجع الكميات وعدّلها حسب الكمية المستلمة فعليًا قبل التأكيد.</div><div class="actions"><button class="primary" type="button" data-action="approve" data-id="${esc(p.id)}">حفظ الكميات وتأكيد الاستلام</button><button class="danger" type="button" data-action="reject" data-id="${esc(p.id)}">رفض الطلب كاملًا</button></div></article>`).join('');
  $('pendingList').querySelectorAll('button[data-action]').forEach(btn=>btn.addEventListener('click',()=>{
-   if(btn.dataset.action==='approve')decide(btn.dataset.id);else reject(btn.dataset.id);
+   if(btn.dataset.action==='approve'){const card=btn.closest('[data-request]');const editedItems=[...card.querySelectorAll('.received-qty')].map(x=>({qty:x.value}));decide(btn.dataset.id,editedItems);}else reject(btn.dataset.id);
  }));
 }
 function fields(){
@@ -106,7 +106,7 @@ $('moveForm').addEventListener('submit',e=>{
  google.script.run.withSuccessHandler(r=>{btn.disabled=false;notice(r.message+' رقم الحركة: '+r.id);$('moveForm').reset();$('itemLines').innerHTML='';addItemLine();$('date').value=new Date().toISOString().slice(0,10);fields();load();})
  .withFailureHandler(e=>{btn.disabled=false;notice(e.message||String(e),'err');}).submitMovement(f);
 });
-function decide(id){if(!confirm('تأكيد استلام التحويل '+id+'؟'))return;google.script.run.withSuccessHandler(r=>{notice(r.message);load();}).withFailureHandler(e=>notice(e.message||String(e),'err')).decideMovement(id,'approve','');}
+function decide(id,editedItems){if(!confirm('تأكيد استلام الحركة '+id+' بالكميات المدخلة؟'))return;google.script.run.withSuccessHandler(r=>{notice(r.message);load();}).withFailureHandler(e=>notice(e.message||String(e),'err')).decideMovement(id,'approve','',editedItems);}
 function reject(id){const reason=prompt('اكتب سبب رفض التحويل:');if(!reason||!reason.trim())return;google.script.run.withSuccessHandler(r=>{notice(r.message);load();}).withFailureHandler(e=>notice(e.message||String(e),'err')).decideMovement(id,'reject',reason);}
 $('date').value=new Date().toISOString().slice(0,10);load();
 </script>

@@ -18,7 +18,7 @@ function makeRow(headers,values,width){
 }
 function user(){const email=(Session.getActiveUser().getEmail()||'').toLowerCase();if(!email)throw Error('تعذر تحديد بريد المستخدم. تحقق من إعدادات نشر Web App.');const {a,h}=rows(S.users);const r=a.slice(1).find(x=>String(x[h['الإيميل']]||'').trim().toLowerCase()===email);if(!r||!['نعم','yes','true','1'].includes(String(r[h['فعّال']]||'').toLowerCase()))throw Error('المستخدم غير مضاف أو غير مفعل في ورقة الصلاحيات: '+email);return {email,name:r[h['الاسم']]||email,place:r[h['المكان']]||'',role:r[h['الدور']]||'مستخدم مكان'};}
 function refs(){const {a,h}=rows(S.items);const items=a.slice(1).filter(r=>r[h['اسم الصنف (فريد)']]).map(r=>({name:String(r[h['اسم الصنف (فريد)']]),unit:String(r[h['الوحدة']]||''),avgCost:Number(r[h['متوسط التكلفة (تلقائي)']]||r[h['سعر مبدئي تقديري (عدّله)']])||0}));const p=rows(S.places);return {items,places:p.a.slice(1).filter(r=>r[p.h['المكان']]&&!String(r[p.h['المكان']]).startsWith('ملاحظة:')).map(r=>({name:String(r[p.h['المكان']]),type:String(r[p.h['النوع']]||'')}))};}
-function getInitialData(){const u=user(),d=refs(),p=pending(u),m=recent();const balances={};d.places.forEach(x=>balances[x.name]={qty:0,value:0});const x=rows(S.moves);x.a.slice(1).forEach(r=>{const q=Number(r[x.h['الكمية']])||0,price=Number(r[x.h['سعر الوحدة (للشراء/الافتتاحي فقط)']])||0,from=r[x.h['من (مكان)']],to=r[x.h['إلى (مكان)']];if(to&&balances[to]){balances[to].qty+=q;balances[to].value+=q*price;}if(from&&balances[from]){balances[from].qty-=q;balances[from].value-=q*price;}});const vals=Object.values(balances);return {user:u,items:d.items,places:d.places,summary:{locations:balances,totalQty:vals.reduce((s,v)=>s+v.qty,0),totalValue:vals.reduce((s,v)=>s+v.value,0)},pending:p,recent:m};}
+function getInitialData(){repairKnownLegacyOpeningBalance_();const u=user(),d=refs(),p=pending(u),m=recent();const balances={};d.places.forEach(x=>balances[x.name]={qty:0,value:0});const x=rows(S.moves);x.a.slice(1).forEach(r=>{const q=Number(r[x.h['الكمية']])||0,price=Number(r[x.h['سعر الوحدة (للشراء/الافتتاحي فقط)']])||0,from=r[x.h['من (مكان)']],to=r[x.h['إلى (مكان)']];if(to&&balances[to]){balances[to].qty+=q;balances[to].value+=q*price;}if(from&&balances[from]){balances[from].qty-=q;balances[from].value-=q*price;}});const vals=Object.values(balances);return {user:u,items:d.items,places:d.places,summary:{locations:balances,totalQty:vals.reduce((s,v)=>s+v.qty,0),totalValue:vals.reduce((s,v)=>s+v.value,0)},pending:p,recent:m};}
 function pending(u){
  const {a,h}=rows(S.pending),groups={};
  a.slice(1).forEach(r=>{
@@ -149,4 +149,40 @@ function repairLegacyOpeningBalance(rowNumber){
   audit(String(values[mh['المعتمد']]||values[mh['المدخل']]||'system'),'استعادة رصيد افتتاحي قديم',id,'ترحيل آمن من الصف '+row);
   return {ok:true,id,message:'تم استعادة الرصيد الافتتاحي وترحيله مرة واحدة.'};
  }finally{lock.releaseLock();}
+}
+
+
+// استعادة تلقائية وآمنة للسجل القديم المحدد الذي أرسله المستخدم.
+// لا تمس أي سجل آخر، وتعمل مرة واحدة فقط بفضل معرف الحركة.
+function repairKnownLegacyOpeningBalance_(){
+ const ps=sh(S.pending);
+ const h=ensureHeaders(ps,['معرف الحركة','التاريخ','نوع الحركة','من','إلى','الصنف','الكمية','سعر الوحدة','الوحدة','رقم المرجع','ملاحظات','المدخل','وقت الإدخال','الحالة','المعتمد','وقت الاعتماد','آخر تعديل','سبب الرفض']);
+ const last=ps.getLastRow();if(last<2)return;
+ const data=ps.getRange(2,1,last-1,ps.getLastColumn()).getValues();
+ for(let j=0;j<data.length;j++){
+  const r=data[j],status=String(r[h['الحالة']]||'').trim();
+  const isTarget=status==='معتمد'&&!r[h['معرف الحركة']]&&!r[h['نوع الحركة']]&&
+   String(r[h['إلى']]||'').trim()==='المطبخ المركزي'&&
+   String(r[h['الصنف']]||'').trim()==='كاتشب'&&
+   Math.abs(Number(r[h['الكمية']])-0.5)<0.000001&&
+   Math.abs(Number(r[h['سعر الوحدة']])-5)<0.000001&&
+   String(r[h['الوحدة']]||'').trim()==='كجم';
+  if(!isTarget)continue;
+  const rowNumber=j+2,id='MV-LEGACY-OPENING-'+rowNumber;
+  const rawDate=r[h['وقت الإدخال']]||new Date('2026-11-17T12:00:00');
+  const date=rawDate instanceof Date?rawDate:new Date(rawDate);
+  if(isNaN(date.getTime()))throw Error('تعذر قراءة تاريخ سجل الرصيد الافتتاحي القديم.');
+  const mv=sh(S.moves);
+  const mh=ensureHeaders(mv,['معرف الحركة','التاريخ','نوع الحركة','من (مكان)','إلى (مكان)','الصنف','الكمية','سعر الوحدة (للشراء/الافتتاحي فقط)','الوحدة','القيمة (تلقائي)','رقم المرجع (فاتورة/إذن)','المسؤول','ملاحظات']);
+  const exists=mv.getDataRange().getValues().slice(1).some(x=>String(x[mh['معرف الحركة']]||'')===id);
+  if(!exists){
+   const q=Number(r[h['الكمية']]),price=Number(r[h['سعر الوحدة']])||0;
+   const out=makeRow(mh,{'معرف الحركة':id,'التاريخ':date,'نوع الحركة':'رصيد افتتاحي','من (مكان)':'','إلى (مكان)':r[h['إلى']],'الصنف':r[h['الصنف']],'الكمية':q,'سعر الوحدة (للشراء/الافتتاحي فقط)':price,'الوحدة':r[h['الوحدة']],'القيمة (تلقائي)':q*price,'رقم المرجع (فاتورة/إذن)':r[h['رقم المرجع']],'المسؤول':r[h['المدخل']],'ملاحظات':r[h['ملاحظات']]},mv.getLastColumn());
+   mv.getRange(mv.getLastRow()+1,1,1,out.length).setValues([out]);
+  }
+  ps.getRange(rowNumber,h['معرف الحركة']+1).setValue(id);
+  ps.getRange(rowNumber,h['التاريخ']+1).setValue(date);
+  ps.getRange(rowNumber,h['نوع الحركة']+1).setValue('رصيد افتتاحي');
+  break;
+ }
 }

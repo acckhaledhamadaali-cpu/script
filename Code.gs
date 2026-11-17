@@ -370,6 +370,38 @@ function extractInvoiceData(fileId){
  };
 }
 
+
+function invoicePdfEscape_(value){
+ return String(value===null||value===undefined?'':value)
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+  .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function generateInvoicePdf(payload){
+ const u=user_();
+ if(!payload||!payload.fileId||!Array.isArray(payload.items)||!payload.items.length)throw Error('لا توجد بيانات فاتورة صالحة لإنشاء PDF.');
+ invoiceArchiveRow_(payload.fileId,u);
+ if(payload.items.length>300)throw Error('عدد البنود يتجاوز الحد المسموح به للتقرير.');
+ const inv=payload.invoice||{};
+ const safe=(v)=>invoicePdfEscape_(v);
+ const n=(v)=>{if(v===null||v===undefined||v==='')return '—';const x=Number(v);return Number.isFinite(x)?x.toLocaleString('en-US',{maximumFractionDigits:4}):'—';};
+ const rows=payload.items.map((x,i)=>'<tr><td>'+(i+1)+'</td><td>'+safe(x.description)+'</td><td>'+safe(x.item)+'</td><td>'+n(x.quantity)+'</td><td>'+safe(x.unit)+'</td><td>'+n(x.unitPrice)+'</td><td>'+n(x.lineTotal)+'</td></tr>').join('');
+ const now=Utilities.formatDate(new Date(),'Asia/Riyadh','yyyy-MM-dd HH:mm');
+ const doc='<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><style>'+
+ 'body{font-family:Arial,Tahoma,sans-serif;color:#172b4d;padding:26px;font-size:12px}h1{font-size:21px;margin:0 0 5px}.sub{color:#667085;margin-bottom:22px}.meta{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:18px}.box{border:1px solid #dce3ec;border-radius:7px;padding:10px}.label{color:#667085;font-size:10px;margin-bottom:4px}.value{font-weight:bold}table{width:100%;border-collapse:collapse;margin-top:12px}th,td{border:1px solid #dce3ec;padding:8px;text-align:right;font-size:10px}th{background:#eef2f7}tfoot td{font-weight:bold;background:#f7f9fc}.totals{margin-top:18px;width:48%;margin-right:auto}.foot{margin-top:24px;color:#667085;font-size:10px;border-top:1px solid #dce3ec;padding-top:10px}</style></head><body>'+
+ '<h1>شاورمتي | تقرير بيانات الفاتورة</h1><div class="sub">تقرير بيانات مستخرجة ومراجعة من المستخدم — لا يُعد مستندًا ضريبيًا بديلًا عن الفاتورة الأصلية</div>'+
+ '<div class="meta"><div class="box"><div class="label">المورد</div><div class="value">'+safe(inv.supplier||'غير محدد')+'</div></div>'+
+ '<div class="box"><div class="label">رقم الفاتورة</div><div class="value">'+safe(inv.invoiceNumber||'غير محدد')+'</div></div>'+
+ '<div class="box"><div class="label">تاريخ الفاتورة</div><div class="value">'+safe(inv.invoiceDate||'غير محدد')+'</div></div>'+
+ '<div class="box"><div class="label">العملة</div><div class="value">'+safe(inv.currency||'SAR')+'</div></div></div>'+
+ '<table><thead><tr><th>#</th><th>الوصف بالفاتورة</th><th>الصنف بالمخزون</th><th>الكمية</th><th>الوحدة</th><th>سعر الوحدة</th><th>إجمالي السطر</th></tr></thead><tbody>'+rows+'</tbody></table>'+
+ '<table class="totals"><tbody><tr><td>الإجمالي قبل الضريبة</td><td>'+n(inv.subtotal)+'</td></tr><tr><td>ضريبة القيمة المضافة</td><td>'+n(inv.vatAmount)+'</td></tr><tr><td>الإجمالي النهائي</td><td><b>'+n(inv.total)+' '+safe(inv.currency||'SAR')+'</b></td></tr></tbody></table>'+
+ '<div class="foot">تاريخ إنشاء التقرير: '+safe(now)+'<br>تم إنشاء هذا التقرير من البيانات التي راجعها المستخدم. يرجى الرجوع إلى صورة الفاتورة الأصلية للتحقق النهائي.</div></body></html>';
+ const blob=HtmlService.createHtmlOutput(doc).getBlob().getAs(MimeType.PDF).setName('Invoice-Report-'+Utilities.formatDate(new Date(),'Asia/Riyadh','yyyyMMdd-HHmmss')+'.pdf');
+ const file=invoiceFolder_(u).createFile(blob);
+ audit_(u.email,'إنشاء تقرير PDF للفاتورة',String(payload.fileId),file.getName());
+ return {ok:true,url:file.getUrl(),name:file.getName(),message:'تم إنشاء تقرير PDF وحفظه في مجلد فواتير المشتريات.'};
+}
+
 function saveInvoiceLearning(payload){
  const u=user_();
  if(!payload||!payload.fileId||!Array.isArray(payload.originalItems)||!Array.isArray(payload.correctedItems))throw Error('بيانات التصحيح غير مكتملة.');

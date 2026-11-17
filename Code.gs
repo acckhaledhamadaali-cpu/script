@@ -104,7 +104,8 @@ function getInitialData(){
 function pending_(u){
  const {a,h}=rows_(S.pending),groups={};
  a.slice(1).forEach(r=>{
-  if(r[h['الحالة']]!=='بانتظار اعتماد'||!(u.role==='مالك'||r[h['إلى']]===u.place))return;
+  // الطلبات تظهر للمالك للمتابعة، ولمسؤول المكان المستلم فقط للاعتماد.
+  if(r[h['الحالة']]!=='بانتظار اعتماد'||!(u.role==='مالك'||(u.role==='مسؤول مكان'&&r[h['إلى']]===u.place)))return;
   const id=String(r[h['معرف الحركة']]);if(!groups[id])groups[id]={id,date:fmtDate_(r[h['التاريخ']]),type:r[h['نوع الحركة']],from:r[h['من']],to:r[h['إلى']],creator:r[h['المدخل']],notes:r[h['ملاحظات']],items:[]};
   groups[id].items.push({item:r[h['الصنف']],qty:r[h['الكمية']],unit:r[h['الوحدة']]});
  });
@@ -187,7 +188,8 @@ function decideMovement(id,decision,reason,editedItems){
   const first=matches[0].r,from=String(first[x.h['من']]||''),to=String(first[x.h['إلى']]||'');
   if(first[x.h['نوع الحركة']]!=='تحويل')throw Error('اعتماد الطلبات متاح للتحويلات فقط.');
   if(matches.some(z=>z.r[x.h['الحالة']]!=='بانتظار اعتماد'))throw Error('تمت معالجة هذا التحويل مسبقًا.');
-  if(u.role!=='مالك'&&u.place!==to)throw Error('تأكيد الاستلام متاح لمسؤول المكان المستلم فقط.');
+  if(matches.some(z=>String(z.r[x.h['من']]||'')!==from||String(z.r[x.h['إلى']]||'')!==to||String(z.r[x.h['المدخل']]||'')!==String(first[x.h['المدخل']]||'')))throw Error('بيانات التحويل غير متطابقة. تم إيقاف الاعتماد لحماية المخزون.');
+  if(u.role!=='مالك'&&(u.role!=='مسؤول مكان'||u.place!==to))throw Error('هذه الحركة مخصصة لمسؤول المكان المستلم فقط، ولا تملك صلاحية اعتمادها.');
   if(u.role!=='مالك'&&String(first[x.h['المدخل']]||'').toLowerCase()===u.email)throw Error('لا يمكنك تأكيد تحويل أنشأته بنفسك.');
   if(decision==='approve'){
    if(!Array.isArray(editedItems)||editedItems.length!==matches.length)throw Error('راجع كميات جميع الأصناف قبل التأكيد.');

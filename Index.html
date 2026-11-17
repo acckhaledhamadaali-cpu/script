@@ -57,7 +57,13 @@ let DATA=null;const $=id=>document.getElementById(id);
 function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function num(v){return (Number(v)||0).toLocaleString('ar-SA',{maximumFractionDigits:2});}
 function notice(msg,type='ok'){const n=$('notice');n.textContent=msg;n.className='notice '+type;window.scrollTo({top:0,behavior:'smooth'});}
-function load(){google.script.run.withSuccessHandler(render).withFailureHandler(e=>notice(e.message||String(e),'err')).getInitialData();}
+function load(){
+ google.script.run.withSuccessHandler(d=>{
+   const msg='فحص الاتصال: الأصناف '+(d.itemCount??'؟')+' | الأماكن '+(d.placeCount??'؟')+' | بريد المستخدم '+(d.activeEmail||'غير ظاهر')+(d.authorizationError?' | مشكلة الصلاحية: '+d.authorizationError:'');
+   notice(msg,d.authorizationError?'err':'ok');
+   google.script.run.withSuccessHandler(render).withFailureHandler(e=>notice('فشل تحميل بيانات التطبيق: '+(e.message||String(e)),'err')).getInitialData();
+ }).withFailureHandler(e=>notice('فشل فحص ملف Google Sheets: '+(e.message||String(e)),'err')).debugConnection();
+}
 function options(id,items,placeholder){$(id).innerHTML='<option value="">'+placeholder+'</option>'+items.map(x=>'<option value="'+esc(x.value)+'">'+esc(x.label)+'</option>').join('');}
 function render(d){
  DATA=d;$('userBox').innerHTML='<b>'+esc(d.user.name)+'</b><br>'+esc(d.user.email)+'<br>'+esc(d.user.role)+(d.user.place?' — '+esc(d.user.place):'');

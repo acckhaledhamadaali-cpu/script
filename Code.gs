@@ -219,9 +219,20 @@ function repairKnownLegacyOpeningBalance_(){
   if(isNaN(date.getTime()))throw Error('تعذر قراءة تاريخ سجل الرصيد الافتتاحي القديم.');
   const mv=sh(S.moves);
   const mh=ensureHeaders(mv,['معرف الحركة','التاريخ','نوع الحركة','من (مكان)','إلى (مكان)','الصنف','الكمية','سعر الوحدة (للشراء/الافتتاحي فقط)','الوحدة','القيمة (تلقائي)','رقم المرجع (فاتورة/إذن)','المسؤول','ملاحظات']);
-  const exists=mv.getDataRange().getValues().slice(1).some(x=>String(x[mh['معرف الحركة']]||'')===id);
-  if(!exists){
-   const q=parseSheetNumber_(r[h['الكمية']]),price=parseSheetNumber_(r[h['سعر الوحدة']])||0;
+  const movementValues=mv.getDataRange().getValues();
+  const alreadyById=movementValues.some((x,i)=>i>0&&String(x[mh['معرف الحركة']]||'')===id);
+  const q=parseSheetNumber_(r[h['الكمية']]),price=parseSheetNumber_(r[h['سعر الوحدة']])||0;
+  // إذا كان الرصيد قد رُحّل سابقًا دون معرف، اربطه بالسجل بدل إنشاء حركة مكررة.
+  const legacyRow=movementValues.findIndex((x,i)=>i>0&&
+   !String(x[mh['معرف الحركة']]||'')&&
+   String(x[mh['نوع الحركة']]||'').trim()==='رصيد افتتاحي'&&
+   String(x[mh['إلى (مكان)']]||'').trim()===String(r[h['إلى']]||'').trim()&&
+   String(x[mh['الصنف']]||'').trim()===String(r[h['الصنف']]||'').trim()&&
+   Math.abs(parseSheetNumber_(x[mh['الكمية']])-q)<0.000001&&
+   Math.abs(parseSheetNumber_(x[mh['سعر الوحدة (للشراء/الافتتاحي فقط)']])-price)<0.000001);
+  if(!alreadyById&&legacyRow>=1){
+   mv.getRange(legacyRow+1,mh['معرف الحركة']+1).setValue(id);
+  }else if(!alreadyById){
    const out=makeRow(mh,{'معرف الحركة':id,'التاريخ':date,'نوع الحركة':'رصيد افتتاحي','من (مكان)':'','إلى (مكان)':r[h['إلى']],'الصنف':r[h['الصنف']],'الكمية':q,'سعر الوحدة (للشراء/الافتتاحي فقط)':price,'الوحدة':r[h['الوحدة']],'القيمة (تلقائي)':q*price,'رقم المرجع (فاتورة/إذن)':r[h['رقم المرجع']],'المسؤول':r[h['المدخل']],'ملاحظات':r[h['ملاحظات']]},mv.getLastColumn());
    appendMovementRows_(mv,[out]);
   }

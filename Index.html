@@ -17,7 +17,7 @@
     button:disabled{opacity:.5;cursor:wait}.hint{font-size:12px;color:var(--muted);line-height:1.8;margin-top:9px}.hide{display:none!important}
     .notice{display:none;padding:12px 14px;border-radius:8px;margin-bottom:14px;font-size:13px;line-height:1.7}.notice.ok{display:block;background:#e8f6ef;color:#116341}.notice.err{display:block;background:#fff0f0;color:#a32932}
     .tablewrap{overflow:auto}table{width:100%;border-collapse:collapse;min-width:620px}th,td{text-align:right;padding:11px 9px;border-bottom:1px solid var(--line);font-size:13px;white-space:nowrap}th{background:#f8f9fb;color:#526176}
-    .cards{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.pending{border:1px solid var(--line);border-radius:10px;padding:13px}.pending p{font-size:13px;color:#536174;line-height:1.8}.empty{text-align:center;color:var(--muted);padding:18px}
+    .cards{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.invoice-box{border:1px dashed #b8c5d8;border-radius:10px;padding:14px;background:#fafbfd}.invoice-actions{display:flex;gap:9px;flex-wrap:wrap}.invoice-actions label{display:inline-flex;align-items:center;justify-content:center;background:#fff;border:1px solid var(--line);border-radius:8px;padding:11px 14px;cursor:pointer;font-weight:bold}.invoice-actions input{display:none}.file-status{font-size:12px;color:var(--muted);margin-top:9px;line-height:1.7}.pending{border:1px solid var(--line);border-radius:10px;padding:13px}.pending p{font-size:13px;color:#536174;line-height:1.8}.empty{text-align:center;color:var(--muted);padding:18px}
 
     .login-screen{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;background:radial-gradient(ellipse at 50% 0%,#e8eef8 0,transparent 58%),#f4f6fa}
     .login-card{width:min(100%,430px);background:#fff;border:1px solid #e3e8f0;border-radius:20px;padding:34px;box-shadow:0 18px 55px rgba(23,43,77,.09)}
@@ -60,7 +60,7 @@
     <button class="tab active" data-tab="movement">إدخال حركة</button>
     <button class="tab" data-tab="approvals">طلبات الاعتماد <span id="pendingCount"></span></button>
     <button class="tab" data-tab="balances">أرصدة الأماكن</button>
-    <button class="tab" data-tab="history">آخر الحركات</button>
+    <button class="tab" data-tab="history">آخر الحركات</button><button class="tab" data-tab="invoices">أرشيف الفواتير</button>
   </nav>
   <section id="movement" class="panel">
     <h2>تسجيل حركة مخزنية</h2>
@@ -72,13 +72,13 @@
       <div id="toWrap"><label>إلى (المستلم)</label><select id="to"></select></div>
       <div><label>التاريخ</label><input id="date" type="date" required></div>
       <div><label>رقم الفاتورة / إذن التحويل</label><input id="reference" placeholder="اختياري"></div>
-      <div><label>ملاحظات</label><input id="notes" placeholder="تفاصيل إضافية"></div>
+      <div><label>ملاحظات</label><input id="notes" placeholder="تفاصيل إضافية"></div><div class="wide invoice-box" id="invoiceUploadBox"><label>فاتورة الشراء (اختياري)</label><div class="invoice-actions"><label>تصوير بالكاميرا<input id="invoiceCamera" type="file" accept="image/*" capture="environment"></label><label>رفع صورة أو PDF<input id="invoiceFile" type="file" accept="image/*,application/pdf"></label><button type="button" class="secondary" id="clearInvoice">إزالة المرفق</button></div><div id="invoiceStatus" class="file-status">يمكن تصوير الفاتورة أو اختيار صورة/PDF. سيتم حفظ الملف الأصلي في Google Drive.</div><input id="invoiceFileId" type="hidden"></div>
     </div><p class="hint" id="typeHint">التحويل يظل معلقًا حتى يؤكد المكان المستلم الاستلام.</p>
     <div class="actions"><button class="primary" id="submitBtn">إرسال الحركة</button><button class="secondary" type="reset">مسح الحقول</button></div></form>
   </section>
   <section id="approvals" class="panel hide"><h2>طلبات الاستلام بانتظار مراجعة المكان المستلم</h2><div id="pendingList" class="cards"></div></section>
   <section id="balances" class="panel hide"><h2>ملخص أرصدة الأماكن</h2><div class="tablewrap"><table><thead><tr><th>المكان</th><th>الكمية الصافية</th><th>القيمة التقديرية (ر.س)</th></tr></thead><tbody id="balanceRows"></tbody></table></div></section>
-  <section id="history" class="panel hide"><h2>آخر الحركات المعتمدة</h2><div class="tablewrap"><table><thead><tr><th>التاريخ</th><th>النوع</th><th>من</th><th>إلى</th><th>الصنف</th><th>الكمية</th></tr></thead><tbody id="historyRows"></tbody></table></div></section>
+  <section id="history" class="panel hide"><h2>آخر الحركات المعتمدة</h2><div class="tablewrap"><table><thead><tr><th>التاريخ</th><th>النوع</th><th>من</th><th>إلى</th><th>الصنف</th><th>الكمية</th></tr></thead><tbody id="historyRows"></tbody></table></div></section><section id="invoices" class="panel hide"><h2>أرشيف الفواتير المحفوظة</h2><div class="tablewrap"><table><thead><tr><th>معرف المستند</th><th>تاريخ الرفع</th><th>اسم الملف</th><th>المكان</th><th>الحالة</th><th>المستند</th></tr></thead><tbody id="invoiceRows"></tbody></table></div></section>
   <p class="hint">لا يتغير الرصيد بسبب التحويل إلا بعد الاعتماد. جميع عمليات الاعتماد والرفض تُسجل في سجل التدقيق.</p>
 </main>
 </div>
@@ -109,8 +109,9 @@ function render(d){
  if(d.user.role!=='مالك'&&d.user.place){$('from').value=d.user.place;$('to').value=d.user.place;}
  $('balanceRows').innerHTML=Object.entries(d.summary.locations).map(([n,v])=>'<tr><td>'+esc(n)+'</td><td>'+num(v.qty)+'</td><td>'+num(v.value)+'</td></tr>').join('');
  $('historyRows').innerHTML=d.recent.map(x=>'<tr><td>'+esc(x.date)+'</td><td>'+esc(x.type)+'</td><td>'+esc(x.from)+'</td><td>'+esc(x.to)+'</td><td>'+esc(x.item)+'</td><td>'+num(x.qty)+' '+esc(x.unit)+'</td></tr>').join('')||'<tr><td colspan="6" class="empty">لا توجد حركات</td></tr>';
- pendingRender();fields();
+ pendingRender();invoiceRender();fields();
 }
+function invoiceRender(){const rows=DATA?.invoices||[];$('invoiceRows').innerHTML=rows.map(x=>'<tr><td>'+esc(x.id)+'</td><td>'+esc(x.uploaded)+'</td><td>'+esc(x.name)+'</td><td>'+esc(x.place||'—')+'</td><td>'+esc(x.status)+'</td><td><a href="'+esc(x.url)+'" target="_blank" rel="noopener">فتح الفاتورة</a></td></tr>').join('')||'<tr><td colspan="6" class="empty">لا توجد فواتير محفوظة</td></tr>';}
 function pendingRender(){
  if(!DATA.pending.length){$('pendingList').innerHTML='<div class="empty">لا توجد تحويلات بانتظار اعتماد هذا المكان.</div>';return;}
  $('pendingList').innerHTML=DATA.pending.map(p=>`<article class="pending" data-request="${esc(p.id)}"><b>${esc(p.id)} — ${p.items.length} أصناف</b><p>${esc(p.from)} ← ${esc(p.to)}<br>التاريخ: ${esc(p.date)}<br>المرسل: ${esc(p.creator)}<br>ملاحظات: ${esc(p.notes||'—')}</p>${p.items.map((x,i)=>'<div style="display:grid;grid-template-columns:1fr 110px;gap:8px;align-items:center;margin:8px 0"><label>'+esc(x.item)+' ('+esc(x.unit)+')</label><input class="received-qty" data-index="'+i+'" type="number" min="0" step="0.001" value="'+esc(x.qty)+'" aria-label="الكمية المستلمة"></div>').join('')}<div class="hint">أدخل الكمية المستلمة فعليًا؛ يمكن تسجيل صفر إذا لم يصل الصنف.</div><div class="actions"><button class="primary" type="button" data-action="approve" data-id="${esc(p.id)}">حفظ الكميات وتأكيد الاستلام</button><button class="danger" type="button" data-action="reject" data-id="${esc(p.id)}">رفض الطلب كاملًا</button></div></article>`).join('');
@@ -125,14 +126,36 @@ function fields(){
  $('typeHint').textContent=transfer?'أضف جميع الأصناف والكميات؛ سيصل الطلب كاملًا للفرع المستلم لاعتماده مرة واحدة. لا يتغير الرصيد قبل التأكيد.':t==='شراء'?'أدخل اسم المورد يدويًا وأضف الأصناف والكميات وأسعار الشراء.':'أضف صنفًا واحدًا أو أكثر ثم أرسل الحركة.';syncLinePrices();
 }
 $('type').addEventListener('change',fields);$('addItemBtn').addEventListener('click',addItemLine);
-document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x===b));['movement','approvals','balances','history'].forEach(x=>$(x).classList.toggle('hide',x!==b.dataset.tab));}));
+document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x===b));['movement','approvals','balances','history','invoices'].forEach(x=>$(x).classList.toggle('hide',x!==b.dataset.tab));}));
 $('moveForm').addEventListener('submit',e=>{
  e.preventDefault();const btn=$('submitBtn');btn.disabled=true;
  const items=[...document.querySelectorAll('.item-line')].map(r=>({item:r.querySelector('.line-item').value,qty:r.querySelector('.line-qty').value,price:r.querySelector('.line-price').value}));if(!items.length||items.some(x=>!x.item||!(Number(x.qty)>0))){btn.disabled=false;notice('أكمل الصنف والكمية في جميع السطور.','err');return;}
- const f={type:$('type').value,items,from:$('type').value==='شراء'?$('supplier').value.trim():$('from').value,to:$('to').value,date:$('date').value,reference:$('reference').value,notes:$('notes').value};
- google.script.run.withSuccessHandler(r=>{btn.disabled=false;notice(r.message+' رقم الحركة: '+r.id);$('moveForm').reset();$('itemLines').innerHTML='';addItemLine();$('date').value=new Date().toISOString().slice(0,10);fields();load();})
+ const f={type:$('type').value,items,from:$('type').value==='شراء'?$('supplier').value.trim():$('from').value,to:$('to').value,date:$('date').value,reference:$('reference').value,notes:$('notes').value,invoiceFileId:$('invoiceFileId').value};
+ google.script.run.withSuccessHandler(r=>{btn.disabled=false;notice(r.message+' رقم الحركة: '+r.id);$('moveForm').reset();$('invoiceFileId').value='';$('invoiceStatus').textContent='يمكن تصوير الفاتورة أو اختيار صورة/PDF. سيتم حفظ الملف الأصلي في Google Drive.';$('itemLines').innerHTML='';addItemLine();$('date').value=new Date().toISOString().slice(0,10);fields();load();})
  .withFailureHandler(e=>{btn.disabled=false;notice(e.message||String(e),'err');}).submitMovement(f);
 });
+
+function uploadInvoiceFromInput(input){
+ const file=input.files&&input.files[0];if(!file)return;
+ if(file.size>8*1024*1024){notice('حجم الملف أكبر من 8 ميجابايت.','err');input.value='';return;}
+ $('invoiceStatus').textContent='جارٍ رفع '+file.name+' وحفظه في Google Drive...';
+ const reader=new FileReader();
+ reader.onload=()=>{
+  const data=String(reader.result||'');
+  google.script.run.withSuccessHandler(r=>{
+   $('invoiceFileId').value=r.fileId;
+   $('invoiceStatus').innerHTML='تم الحفظ: <a href="'+esc(r.url)+'" target="_blank" rel="noopener">فتح المستند</a> — '+esc(r.name);
+   notice(r.message);
+   if(DATA){DATA.invoices.unshift({id:r.id,uploaded:new Date().toISOString().slice(0,10),name:r.name,url:r.url,status:'محفوظ - بانتظار ربطه بحركة'});invoiceRender();}
+  }).withFailureHandler(e=>{$('invoiceStatus').textContent='فشل حفظ المستند: '+(e.message||String(e));notice(e.message||String(e),'err');}).uploadInvoice({name:file.name,mimeType:file.type||'application/octet-stream',data});
+ };
+ reader.onerror=()=>{notice('تعذر قراءة الملف من الجهاز.','err');};
+ reader.readAsDataURL(file);
+}
+$('invoiceCamera').addEventListener('change',function(){uploadInvoiceFromInput(this);});
+$('invoiceFile').addEventListener('change',function(){uploadInvoiceFromInput(this);});
+$('clearInvoice').addEventListener('click',()=>{$('invoiceFileId').value='';$('invoiceCamera').value='';$('invoiceFile').value='';$('invoiceStatus').textContent='تم فصل الفاتورة عن الحركة. الملف المحفوظ يظل موجودًا في الأرشيف.';});
+
 function decide(id,editedItems){if(!confirm('تأكيد استلام الحركة '+id+' بالكميات المدخلة؟'))return;google.script.run.withSuccessHandler(r=>{notice(r.message);load();}).withFailureHandler(e=>notice(e.message||String(e),'err')).decideMovement(id,'approve','',editedItems);}
 function reject(id){const reason=prompt('اكتب سبب رفض التحويل:');if(!reason||!reason.trim())return;google.script.run.withSuccessHandler(r=>{notice(r.message);load();}).withFailureHandler(e=>notice(e.message||String(e),'err')).decideMovement(id,'reject',reason);}
 

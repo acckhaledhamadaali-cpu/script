@@ -221,3 +221,32 @@ function testMovementSheet() {
 }
 
 
+
+
+function inspectMovementTopRows() {
+  const s = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sh = s.getSheetByName('الحركات');
+  const lastCol = sh.getLastColumn();
+  const rows = Math.min(8, sh.getMaxRows());
+  const range = sh.getRange(1, 1, rows, lastCol);
+  const values = range.getDisplayValues();
+  const formulas = range.getFormulas();
+  const result = [];
+  for (let r = 0; r < rows; r++) {
+    const cells = [];
+    for (let col = 0; col < lastCol; col++) {
+      if (values[r][col] !== '' || formulas[r][col] !== '') {
+        cells.push({
+          column: col + 1,
+          header: values[0][col] || '',
+          value: values[r][col],
+          formula: formulas[r][col]
+        });
+      }
+    }
+    result.push({ row: r + 1, cells: cells });
+  }
+  Logger.log(JSON.stringify(result, null, 2));
+  console.log(JSON.stringify(result, null, 2));
+  return result;
+}

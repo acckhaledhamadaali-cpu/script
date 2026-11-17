@@ -187,3 +187,21 @@ function repairKnownLegacyOpeningBalance_(){
   break;
  }
 }
+
+// فحص قراءة شيت الحركات والحركات المعلقة دون تعديل أي بيانات.
+function testMovementSheet() {
+  const book = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const pendingSheet = book.getSheetByName('الحركات_المعلقة');
+  const movementSheet = book.getSheetByName('الحركات');
+  if (!pendingSheet) throw new Error('ورقة الحركات_المعلقة غير موجودة.');
+  if (!movementSheet) throw new Error('ورقة الحركات غير موجودة.');
+  return {
+    pendingLastRow: pendingSheet.getLastRow(),
+    pendingLastColumn: pendingSheet.getLastColumn(),
+    pendingHeaders: pendingSheet.getRange(1, 1, 1, pendingSheet.getLastColumn()).getDisplayValues()[0],
+    movementsLastRow: movementSheet.getLastRow(),
+    movementsLastColumn: movementSheet.getLastColumn(),
+    movementsHeaders: movementSheet.getRange(1, 1, 1, movementSheet.getLastColumn()).getDisplayValues()[0]
+  };
+}
+

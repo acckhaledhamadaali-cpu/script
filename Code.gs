@@ -195,7 +195,7 @@ function testMovementSheet() {
   const movementSheet = book.getSheetByName('الحركات');
   if (!pendingSheet) throw new Error('ورقة الحركات_المعلقة غير موجودة.');
   if (!movementSheet) throw new Error('ورقة الحركات غير موجودة.');
-  return {
+  const result = {
     pendingLastRow: pendingSheet.getLastRow(),
     pendingLastColumn: pendingSheet.getLastColumn(),
     pendingHeaders: pendingSheet.getRange(1, 1, 1, pendingSheet.getLastColumn()).getDisplayValues()[0],
@@ -203,5 +203,8 @@ function testMovementSheet() {
     movementsLastColumn: movementSheet.getLastColumn(),
     movementsHeaders: movementSheet.getRange(1, 1, 1, movementSheet.getLastColumn()).getDisplayValues()[0]
   };
+  Logger.log(JSON.stringify(result, null, 2));
+  console.log(result);
+  return result;
 }
 

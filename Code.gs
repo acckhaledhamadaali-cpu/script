@@ -189,22 +189,35 @@ function repairKnownLegacyOpeningBalance_(){
 }
 
 // فحص قراءة شيت الحركات والحركات المعلقة دون تعديل أي بيانات.
+
 function testMovementSheet() {
-  const book = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const pendingSheet = book.getSheetByName('الحركات_المعلقة');
-  const movementSheet = book.getSheetByName('الحركات');
-  if (!pendingSheet) throw new Error('ورقة الحركات_المعلقة غير موجودة.');
-  if (!movementSheet) throw new Error('ورقة الحركات غير موجودة.');
+  const s = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const p = s.getSheetByName('الحركات_المعلقة');
+  const m = s.getSheetByName('الحركات');
+  const pendingData = p.getDataRange().getDisplayValues();
+  const movementData = m.getDataRange().getDisplayValues();
+  const pHead = pendingData[0] || [];
+  const mHead = movementData[0] || [];
+  const pId = pHead.indexOf('معرف الحركة');
+  const mId = mHead.indexOf('معرف الحركة');
+  const pendingIds = pendingData.slice(1).filter(r => r[pId]).map(r => r[pId]);
+  const movementMatches = movementData.slice(1)
+    .map((r, i) => ({ row: i + 2, id: mId >= 0 ? r[mId] : '', values: r }))
+    .filter(x => pendingIds.includes(x.id));
+  const nonEmptyMovementRows = movementData.slice(1)
+    .map((r, i) => ({ row: i + 2, values: r }))
+    .filter(x => x.values.some(v => String(v).trim() !== ''));
   const result = {
-    pendingLastRow: pendingSheet.getLastRow(),
-    pendingLastColumn: pendingSheet.getLastColumn(),
-    pendingHeaders: pendingSheet.getRange(1, 1, 1, pendingSheet.getLastColumn()).getDisplayValues()[0],
-    movementsLastRow: movementSheet.getLastRow(),
-    movementsLastColumn: movementSheet.getLastColumn(),
-    movementsHeaders: movementSheet.getRange(1, 1, 1, movementSheet.getLastColumn()).getDisplayValues()[0]
+    pendingIds: pendingIds,
+    pendingRows: pendingData.slice(1).filter(r => r.some(v => String(v).trim() !== '')),
+    movementNonEmptyRowCount: nonEmptyMovementRows.length,
+    movementLastNonEmptyRows: nonEmptyMovementRows.slice(-8),
+    movementMatchesForPending: movementMatches,
+    movementHeaders: mHead
   };
   Logger.log(JSON.stringify(result, null, 2));
-  console.log(result);
+  console.log(JSON.stringify(result, null, 2));
   return result;
 }
+
 

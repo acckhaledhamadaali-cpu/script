@@ -86,7 +86,7 @@
           <h3>نتيجة قراءة الفاتورة بالذكاء الاصطناعي</h3>
           <div id="invoiceExtractMeta" class="ocr-meta"></div>
           <div class="tablewrap"><table class="ocr-table"><thead><tr><th>الوصف في الفاتورة</th><th>الصنف في المخزون</th><th>الكمية</th><th>الوحدة</th><th>سعر الوحدة</th><th>إجمالي السطر</th><th>الثقة</th></tr></thead><tbody id="invoiceExtractRows"></tbody></table></div>
-          <div class="ocr-actions"><button type="button" class="primary" id="applyInvoiceExtraction">حفظ التصحيحات واستخدام البيانات</button></div>
+          <div class="ocr-actions"><button type="button" class="primary" id="applyInvoiceExtraction">حفظ التصحيحات واستخدام البيانات</button></div><div class="ocr-actions"><button type="button" class="secondary" id="printInvoiceReport">طباعة التقرير</button><button type="button" class="secondary" id="downloadInvoicePdf">تنزيل PDF</button></div>
           <div class="ocr-note">راجع كل بند قبل الاستخدام. البنود غير المطابقة يجب ربطها يدويًا بصنف المخزون. الأسعار أو الكميات غير المقروءة ستظل فارغة حتى تدخلها بنفسك. لن يتم ترحيل أي حركة تلقائيًا.</div>
         </div>
     </div><p class="hint" id="typeHint">التحويل يظل معلقًا حتى يؤكد المكان المستلم الاستلام.</p>
@@ -221,6 +221,45 @@ function applyInvoiceExtraction(){
 }
 $('applyInvoiceExtraction').addEventListener('click',applyInvoiceExtraction);
 
+
+function invoiceReportPayload(){
+ if(!LAST_EXTRACTION||!LAST_EXTRACTION.items?.length)throw new Error('لا توجد بيانات مستخرجة للطباعة أو التنزيل.');
+ const rows=[...$('invoiceExtractRows').querySelectorAll('tr')].map(row=>({
+  description:row.cells[0]?.querySelector('b')?.textContent||'',
+  item:row.querySelector('.ocr-item').value,
+  quantity:row.querySelector('.ocr-qty').value,
+  unit:row.querySelector('.ocr-unit').value,
+  unitPrice:row.querySelector('.ocr-price').value,
+  lineTotal:row.querySelector('.ocr-total').value
+ }));
+ const inv=LAST_EXTRACTION.invoice||{};
+ return {fileId:$('invoiceFileId').value,invoice:{
+  supplier:inv.supplier||'',invoiceNumber:inv.invoice_number||'',
+  invoiceDate:inv.invoice_date||'',currency:inv.currency||'SAR',
+  subtotal:inv.subtotal??'',vatAmount:inv.vat_amount??'',total:inv.total??''
+ },items:rows};
+}
+function invoiceReportHtml(payload){
+ const safe=esc;
+ const inv=payload.invoice;
+ const rows=payload.items.map((x,i)=>'<tr><td>'+(i+1)+'</td><td>'+safe(x.description)+'</td><td>'+safe(x.item)+'</td><td>'+safe(x.quantity)+'</td><td>'+safe(x.unit)+'</td><td>'+safe(x.unitPrice)+'</td><td>'+safe(x.lineTotal)+'</td></tr>').join('');
+ return '<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>تقرير بيانات الفاتورة</title><style>body{font-family:Arial,Tahoma,sans-serif;padding:24px;color:#172b4d}h2{margin-bottom:5px}.muted{color:#667085;font-size:12px;margin-bottom:18px}.meta{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px}.meta div{border:1px solid #ddd;padding:9px;border-radius:6px}table{width:100%;border-collapse:collapse;margin-top:12px}th,td{border:1px solid #ddd;padding:8px;text-align:right;font-size:12px}th{background:#f1f4f8}.totals{width:45%;margin-right:auto}.foot{margin-top:20px;font-size:10px;color:#667085}@media print{body{padding:0}}</style></head><body><h2>شاورمتي | تقرير بيانات الفاتورة</h2><div class="muted">بيانات مستخرجة ومراجعة — لا يُعد التقرير بديلاً عن الفاتورة الأصلية</div><div class="meta"><div>المورد: <b>'+safe(inv.supplier||'غير محدد')+'</b></div><div>رقم الفاتورة: <b>'+safe(inv.invoiceNumber||'غير محدد')+'</b></div><div>التاريخ: <b>'+safe(inv.invoiceDate||'غير محدد')+'</b></div><div>العملة: <b>'+safe(inv.currency||'SAR')+'</b></div></div><table><thead><tr><th>#</th><th>الوصف بالفاتورة</th><th>الصنف بالمخزون</th><th>الكمية</th><th>الوحدة</th><th>سعر الوحدة</th><th>إجمالي السطر</th></tr></thead><tbody>'+rows+'</tbody></table><table class="totals"><tr><td>قبل الضريبة</td><td>'+safe(inv.subtotal??'—')+'</td></tr><tr><td>الضريبة</td><td>'+safe(inv.vatAmount??'—')+'</td></tr><tr><td>الإجمالي</td><td><b>'+safe(inv.total??'—')+' '+safe(inv.currency||'SAR')+'</b></td></tr></table><div class="foot">تقرير مولد من بيانات تمت مراجعتها بواسطة المستخدم. يرجى الرجوع إلى الفاتورة الأصلية للتحقق النهائي.</div><script>window.onload=function(){window.print()}<\/script></body></html>';
+}
+$('printInvoiceReport').addEventListener('click',()=>{
+ try{const p=invoiceReportPayload();const w=window.open('','_blank');if(!w){notice('اسمح بالنوافذ المنبثقة لإتمام الطباعة.','err');return;}w.document.open();w.document.write(invoiceReportHtml(p));w.document.close();}
+ catch(e){notice(e.message||String(e),'err');}
+});
+$('downloadInvoicePdf').addEventListener('click',()=>{
+ let payload;try{payload=invoiceReportPayload();}catch(e){notice(e.message||String(e),'err');return;}
+ const btn=$('downloadInvoicePdf');btn.disabled=true;btn.textContent='جارٍ إنشاء PDF...';
+ google.script.run.withSuccessHandler(r=>{
+  btn.disabled=false;btn.textContent='تنزيل PDF';
+  const link='<a href="'+esc(r.url)+'" target="_blank" rel="noopener">فتح / تنزيل ملف PDF</a>';
+  $('invoiceStatus').innerHTML='تم إنشاء التقرير بنجاح: '+link;notice('تم إنشاء تقرير PDF وحفظه في Google Drive.');
+ }).withFailureHandler(e=>{
+  btn.disabled=false;btn.textContent='تنزيل PDF';notice('تعذر إنشاء PDF: '+(e.message||String(e)),'err');
+ }).generateInvoicePdf(payload);
+});
 function uploadInvoiceFromInput(input){
  const file=input.files&&input.files[0];if(!file)return;
  if(file.size>8*1024*1024){notice('حجم الملف أكبر من 8 ميجابايت.','err');input.value='';return;}

@@ -39,6 +39,10 @@ function submitMovement(f){
    if(type==='تحويل'&&q>available(from,item.name))throw Error('الكمية المطلوبة من الصنف '+item.name+' أكبر من المتاح في '+from+'.');
    return {item,q,price};
   });
+  if(type==='تحويل'){
+   const totals={};clean.forEach(x=>totals[x.item.name]=(totals[x.item.name]||0)+x.q);
+   Object.keys(totals).forEach(name=>{if(totals[name]>available(from,name))throw Error('إجمالي الكمية المطلوبة من الصنف '+name+' أكبر من المتاح في '+from+'.');});
+  }
   const id='MV-'+Utilities.formatDate(new Date(),'Asia/Riyadh','yyyyMMdd-HHmmss')+'-'+Math.floor(Math.random()*900+100),ps=sh(S.pending),now=new Date();
   const rowsToAdd=clean.map(x=>{const row=[id,new Date(f.date+'T12:00:00'),type,from,to,x.item.name,x.q,x.price,x.item.unit,f.reference||'',f.notes||'',u.email,now,'بانتظار اعتماد','','','',''];while(row.length<ps.getLastColumn())row.push('');return row;});
   ps.getRange(ps.getLastRow()+1,1,rowsToAdd.length,rowsToAdd[0].length).setValues(rowsToAdd);

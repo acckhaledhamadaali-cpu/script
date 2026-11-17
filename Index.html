@@ -39,6 +39,7 @@
       <div><label>الصنف</label><select id="item" required></select></div>
       <div><label>الكمية</label><input id="qty" type="number" min="0.001" step="0.001" required></div>
       <div id="fromWrap"><label>من (المصدر)</label><select id="from"></select></div>
+      <div id="supplierWrap" class="hide"><label>المورد</label><input id="supplier" type="text" maxlength="200" placeholder="اكتب اسم المورد يدويًا"></div>
       <div id="toWrap"><label>إلى (المستلم)</label><select id="to"></select></div>
       <div id="priceWrap" class="hide"><label>سعر الوحدة</label><input id="price" type="number" min="0" step="0.01"></div>
       <div><label>التاريخ</label><input id="date" type="date" required></div>
@@ -85,16 +86,16 @@ function pendingRender(){
  }));
 }
 function fields(){
- const t=$('type').value, transfer=t==='تحويل', inbound=['شراء','رصيد افتتاحي','تسوية زيادة'].includes(t), outbound=['صرف للتشغيل','هالك','مرتجع للمورد','تسوية عجز'].includes(t);
- $('fromWrap').classList.toggle('hide',inbound);$('toWrap').classList.toggle('hide',outbound);$('priceWrap').classList.toggle('hide',!['شراء','رصيد افتتاحي'].includes(t));
- $('from').required=transfer||outbound;$('to').required=transfer||inbound;$('price').required=['شراء','رصيد افتتاحي'].includes(t);
+ const t=$('type').value, transfer=t==='تحويل', purchase=t==='شراء', inbound=['شراء','رصيد افتتاحي','تسوية زيادة'].includes(t), outbound=['صرف للتشغيل','هالك','مرتجع للمورد','تسوية عجز'].includes(t);
+ $('supplierWrap').classList.toggle('hide',!purchase);$('fromWrap').classList.toggle('hide',inbound);$('toWrap').classList.toggle('hide',outbound);$('priceWrap').classList.toggle('hide',!['شراء','رصيد افتتاحي'].includes(t));
+ $('supplier').required=purchase;$('from').required=transfer||outbound;$('to').required=transfer||inbound;$('price').required=['شراء','رصيد افتتاحي'].includes(t);
  $('typeHint').textContent=transfer?'المرسل ينشئ التحويل، والمستلم يؤكد أو يرفض. لا يتغير الرصيد قبل التأكيد.':t==='شراء'?'يسجل الاستلام في المكان المحدد وفق قواعد الاعتماد.':'سيتم تسجيل الحركة وفق صلاحيات المكان.';
 }
 $('type').addEventListener('change',fields);
 document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x===b));['movement','approvals','balances','history'].forEach(x=>$(x).classList.toggle('hide',x!==b.dataset.tab));}));
 $('moveForm').addEventListener('submit',e=>{
  e.preventDefault();const btn=$('submitBtn');btn.disabled=true;
- const f={type:$('type').value,item:$('item').value,qty:$('qty').value,from:$('from').value,to:$('to').value,price:$('price').value,date:$('date').value,reference:$('reference').value,notes:$('notes').value};
+ const f={type:$('type').value,item:$('item').value,qty:$('qty').value,from:$('type').value==='شراء'?$('supplier').value.trim():$('from').value,to:$('to').value,price:$('price').value,date:$('date').value,reference:$('reference').value,notes:$('notes').value};
  google.script.run.withSuccessHandler(r=>{btn.disabled=false;notice(r.message+' رقم الحركة: '+r.id);$('moveForm').reset();$('date').value=new Date().toISOString().slice(0,10);load();})
  .withFailureHandler(e=>{btn.disabled=false;notice(e.message||String(e),'err');}).submitMovement(f);
 });

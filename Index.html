@@ -234,7 +234,7 @@ function uploadInvoiceFromInput(input){
    $('invoiceStatus').innerHTML='تم الحفظ: <a href="'+esc(r.url)+'" target="_blank" rel="noopener">فتح المستند</a> — '+esc(r.name);
    if(DATA){DATA.invoices.unshift({id:r.id,uploaded:new Date().toISOString().slice(0,10),name:r.name,url:r.url,status:'محفوظ - بانتظار ربطه بحركة'});invoiceRender();}
    runInvoiceExtraction(r.fileId);
-  }).withFailureHandler(e=>{$('invoiceStatus').textContent='فشل حفظ المستند: '+(e.message||String(e));notice(e.message||String(e),'err');}).uploadInvoice({name:file.name,mimeType:file.type||'application/octet-stream',data});
+  }).withFailureHandler(e=>{$('invoiceStatus').textContent='فشل حفظ المستند: '+(e.message||String(e));notice(e.message||String(e),'err');}).uploadInvoice({name:file.name,mimeType:file.type||(/\\.pdf$/i.test(file.name)?'application/pdf':/\\.png$/i.test(file.name)?'image/png':/\\.webp$/i.test(file.name)?'image/webp':'image/jpeg'),data});
  };
  reader.onerror=()=>{notice('تعذر قراءة الملف من الجهاز.','err');};
  reader.readAsDataURL(file);

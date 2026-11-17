@@ -171,9 +171,9 @@ function submitMovement(f){
 function decideMovement(id,decision,reason,editedItems){
  const lock=LockService.getScriptLock();lock.waitLock(30000);
  try{
-  const pendingSheet=sh(S.pending),movesSheet=sh(S.moves);
+  const u=user(),pendingSheet=sh(S.pending),movesSheet=sh(S.moves);
+  ensureHeaders(pendingSheet,['معرف الحركة','التاريخ','نوع الحركة','من','إلى','الصنف','الكمية','سعر الوحدة','الوحدة','رقم المرجع','ملاحظات','المدخل','وقت الإدخال','الحالة','المعتمد','وقت الاعتماد','آخر تعديل','سبب الرفض','الكمية المستلمة','فرق الاستلام']);
   const x=rows(S.pending),matches=[];
-  const u=user();
   x.a.forEach((r,i)=>{if(i>0&&String(r[x.h['معرف الحركة']])===String(id))matches.push({r,i});});
   if(!matches.length)throw Error('التحويل غير موجود.');
   const first=matches[0].r,from=String(first[x.h['من']]||''),to=String(first[x.h['إلى']]||'');
@@ -183,27 +183,32 @@ function decideMovement(id,decision,reason,editedItems){
   if(u.role!=='مالك'&&String(first[x.h['المدخل']]||'').toLowerCase()===u.email)throw Error('لا يمكنك تأكيد تحويل أنشأته بنفسك.');
   if(decision==='approve'){
    if(!Array.isArray(editedItems)||editedItems.length!==matches.length)throw Error('راجع كميات جميع الأصناف قبل التأكيد.');
-   const totals={};
+   const sentTotals={};
    editedItems.forEach((v,j)=>{
-    const q=Number(v.qty),sent=Number(matches[j].r[x.h['الكمية']])||0;
-    if(!(q>0)||q>sent)throw Error('الكمية المستلمة يجب أن تكون أكبر من صفر ولا تتجاوز الكمية المرسلة.');
-    const item=String(matches[j].r[x.h['الصنف']]);totals[item]=(totals[item]||0)+sent;
+    const received=Number(v.qty),sent=Number(matches[j].r[x.h['الكمية']])||0;
+    if(!Number.isFinite(received)||received<0||received>sent)throw Error('الكمية المستلمة يجب أن تكون بين صفر والكمية المرسلة.');
+    const item=String(matches[j].r[x.h['الصنف']]);sentTotals[item]=(sentTotals[item]||0)+sent;
    });
-   Object.keys(totals).forEach(item=>{if(totals[item]>available(from,item)+totals[item])throw Error('الرصيد المتاح في المصدر غير كافٍ للصنف '+item+'.');});
+   Object.keys(sentTotals).forEach(item=>{if(sentTotals[item]>available(from,item)+sentTotals[item])throw Error('الرصيد المتاح في المصدر غير كافٍ للصنف '+item+'.');});
    const mh=ensureHeaders(movesSheet,['معرف الحركة','التاريخ','نوع الحركة','من (مكان)','إلى (مكان)','الصنف','الكمية','سعر الوحدة (للشراء/الافتتاحي فقط)','الوحدة','القيمة (تلقائي)','رقم المرجع (فاتورة/إذن)','المسؤول','ملاحظات']);
-   const toAdd=matches.map(({r},j)=>{
-    const q=Number(editedItems[j].qty),price=Number(r[x.h['سعر الوحدة']])||0;
-    return makeRow(mh,{'معرف الحركة':id,'التاريخ':r[x.h['التاريخ']],'نوع الحركة':'تحويل','من (مكان)':from,'إلى (مكان)':to,'الصنف':r[x.h['الصنف']],'الكمية':q,'سعر الوحدة (للشراء/الافتتاحي فقط)':price,'الوحدة':r[x.h['الوحدة']],'القيمة (تلقائي)':q*price,'رقم المرجع (فاتورة/إذن)':r[x.h['رقم المرجع']],'المسؤول':r[x.h['المدخل']],'ملاحظات':String(r[x.h['ملاحظات']]||'')+(q<Number(r[x.h['الكمية']])?' | فرق الاستلام: أرسل '+r[x.h['الكمية']]+' واستلم '+q:'')},movesSheet.getLastColumn());
+   const toAdd=[];
+   matches.forEach(({r},j)=>{
+    const sent=Number(r[x.h['الكمية']])||0,received=Number(editedItems[j].qty),price=Number(r[x.h['سعر الوحدة']])||0;
+    const base={'معرف الحركة':id,'التاريخ':r[x.h['التاريخ']],'سعر الوحدة (للشراء/الافتتاحي فقط)':price,'الوحدة':r[x.h['الوحدة']],'رقم المرجع (فاتورة/إذن)':r[x.h['رقم المرجع']],'المسؤول':r[x.h['المدخل']]};
+    toAdd.push(makeRow(mh,{...base,'نوع الحركة':'تحويل صادر','من (مكان)':from,'إلى (مكان)':'','الصنف':r[x.h['الصنف']],'الكمية':sent,'القيمة (تلقائي)':sent*price,'ملاحظات':'صادر إلى '+to+' | '+String(r[x.h['ملاحظات']]||'')},movesSheet.getLastColumn()));
+    if(received>0)toAdd.push(makeRow(mh,{...base,'نوع الحركة':'تحويل وارد','من (مكان)':'','إلى (مكان)':to,'الصنف':r[x.h['الصنف']],'الكمية':received,'القيمة (تلقائي)':received*price,'ملاحظات':'وارد من '+from+(received<sent?' | عجز استلام: '+(sent-received):'')+' | '+String(r[x.h['ملاحظات']]||'')},movesSheet.getLastColumn()));
    });
    appendMovementRows_(movesSheet,toAdd);
-   matches.forEach(({i},j)=>{
-    const row=i+1;pendingSheet.getRange(row,x.h['الكمية']+1).setValue(Number(editedItems[j].qty));
+   matches.forEach(({i,r},j)=>{
+    const received=Number(editedItems[j].qty),sent=Number(r[x.h['الكمية']])||0,row=i+1;
+    pendingSheet.getRange(row,x.h['الكمية المستلمة']+1).setValue(received);
+    pendingSheet.getRange(row,x.h['فرق الاستلام']+1).setValue(sent-received);
     pendingSheet.getRange(row,x.h['الحالة']+1).setValue('معتمد');
     if(x.h['المعتمد']!==undefined)pendingSheet.getRange(row,x.h['المعتمد']+1).setValue(u.email);
     if(x.h['وقت الاعتماد']!==undefined)pendingSheet.getRange(row,x.h['وقت الاعتماد']+1).setValue(new Date());
    });
    audit(u.email,'تأكيد استلام تحويل',id,from+' إلى '+to+' | '+matches.length+' أصناف');
-   return {ok:true,message:'تم تأكيد الاستلام وترحيل الكميات المستلمة.'};
+   return {ok:true,message:'تم تأكيد الاستلام. خُصمت الكمية المرسلة وأضيفت الكمية المستلمة الفعلية.'};
   }
   if(decision==='reject'){
    if(!String(reason||'').trim())throw Error('اكتب سبب الرفض.');

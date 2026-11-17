@@ -10,7 +10,7 @@
     main{max-width:1180px;margin:22px auto;padding:0 15px}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
     .stat,.panel{background:white;border:1px solid var(--line);border-radius:12px;padding:16px}.stat span{display:block;color:var(--muted);font-size:12px;margin-bottom:8px}.stat strong{font-size:22px;color:var(--navy)}
     .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}.tab{border:1px solid var(--line);background:white;border-radius:8px;padding:10px 14px;cursor:pointer;font-weight:bold}.tab.active{background:var(--blue);color:white}
-    .panel{margin-bottom:15px}.panel h2{font-size:17px;margin:0 0 14px;color:var(--navy)}.formgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+    .panel{margin-bottom:15px}.panel h2{font-size:17px;margin:0 0 14px;color:var(--navy)}.formgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.wide{grid-column:1/-1}.item-line{display:grid;grid-template-columns:minmax(0,2fr) minmax(100px,1fr) minmax(110px,1fr) auto;gap:9px;align-items:end;background:#f8f9fb;border:1px solid var(--line);border-radius:10px;padding:11px;margin-bottom:9px}.item-line label{font-size:12px}.item-line .remove-line{height:42px}.addline{width:100%;border-style:dashed!important;color:var(--blue)!important;font-weight:bold}
     label{display:block;font-size:13px;color:#475467;margin-bottom:6px}input,select{width:100%;border:1px solid #ccd4df;border-radius:8px;padding:11px;font:inherit;background:white;min-height:42px}
     .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}button.primary{background:var(--blue);color:white;border:0;border-radius:8px;padding:10px 16px;cursor:pointer;font-weight:bold}
     button.secondary{background:white;border:1px solid var(--line);border-radius:8px;padding:9px 13px;cursor:pointer}button.danger{background:white;color:var(--red);border:1px solid #efc6c8;border-radius:8px;padding:9px 13px;cursor:pointer}
@@ -19,7 +19,7 @@
     .tablewrap{overflow:auto}table{width:100%;border-collapse:collapse;min-width:620px}th,td{text-align:right;padding:11px 9px;border-bottom:1px solid var(--line);font-size:13px;white-space:nowrap}th{background:#f8f9fb;color:#526176}
     .cards{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.pending{border:1px solid var(--line);border-radius:10px;padding:13px}.pending p{font-size:13px;color:#536174;line-height:1.8}.empty{text-align:center;color:var(--muted);padding:18px}
     @media(max-width:760px){.grid{grid-template-columns:repeat(2,1fr)}.formgrid{grid-template-columns:1fr 1fr}.cards{grid-template-columns:1fr}}
-    @media(max-width:480px){main{padding:0 10px;margin:12px auto}.formgrid{grid-template-columns:1fr}.stat{padding:12px}.stat strong{font-size:19px}.panel{padding:13px}}
+    @media(max-width:480px){main{padding:0 10px;margin:12px auto}.formgrid{grid-template-columns:1fr}.wide{grid-column:1}.item-line{grid-template-columns:1fr 1fr;gap:8px;padding:10px}.item-line .item-name{grid-column:1/-1}.item-line .remove-line{grid-column:1/-1;width:100%;min-height:40px}.stat{padding:12px}.stat strong{font-size:19px}.panel{padding:13px}header{padding:14px}.tabs{display:grid;grid-template-columns:1fr 1fr}.tab{padding:11px 7px;font-size:13px}input,select{font-size:16px;min-height:46px}.actions button{flex:1;min-height:44px}}
   </style>
 </head>
 <body>
@@ -36,8 +36,7 @@
     <h2>تسجيل حركة مخزنية</h2>
     <form id="moveForm"><div class="formgrid">
       <div><label>نوع الحركة</label><select id="type"><option value="تحويل">تحويل بين الأماكن</option><option value="شراء">استلام مشتريات</option><option value="صرف للتشغيل">صرف للتشغيل</option><option value="هالك">هالك</option><option value="رصيد افتتاحي">رصيد افتتاحي</option><option value="مرتجع للمورد">مرتجع للمورد</option><option value="تسوية زيادة">تسوية زيادة</option><option value="تسوية عجز">تسوية عجز</option></select></div>
-      <div><label>الصنف</label><select id="item" required></select></div>
-      <div><label>الكمية</label><input id="qty" type="number" min="0.001" step="0.001" required></div>
+      <div class="wide"><label>الأصناف والكميات</label><div id="itemLines"></div><button class="secondary addline" type="button" id="addItemBtn">＋ إضافة صنف</button></div>
       <div id="fromWrap"><label>من (المصدر)</label><select id="from"></select></div>
       <div id="supplierWrap" class="hide"><label>المورد</label><input id="supplier" type="text" maxlength="200" placeholder="اكتب اسم المورد يدويًا"></div>
       <div id="toWrap"><label>إلى (المستلم)</label><select id="to"></select></div>
@@ -66,11 +65,19 @@ function load(){
  }).withFailureHandler(e=>notice('فشل فحص ملف Google Sheets: '+(e.message||String(e)),'err')).debugConnection();
 }
 function options(id,items,placeholder){$(id).innerHTML='<option value="">'+placeholder+'</option>'+items.map(x=>'<option value="'+esc(x.value)+'">'+esc(x.label)+'</option>').join('');}
+function addItemLine(){
+ const row=document.createElement('div');row.className='item-line';
+ const itemOptions=(DATA?.items||[]).map(x=>'<option value="'+esc(x.name)+'">'+esc(x.name)+' — '+esc(x.unit)+'</option>').join('');
+ row.innerHTML='<div class="item-name"><label>الصنف</label><select class="line-item" required><option value="">اختر الصنف</option>'+itemOptions+'</select></div><div><label>الكمية</label><input class="line-qty" type="number" min="0.001" step="0.001" placeholder="الكمية" required></div><div class="line-price-wrap hide"><label>سعر الوحدة</label><input class="line-price" type="number" min="0" step="0.01" placeholder="السعر"></div><button type="button" class="danger remove-line">حذف</button>';
+ row.querySelector('.remove-line').addEventListener('click',()=>{if($('itemLines').children.length>1)row.remove();else notice('يجب أن يحتوي الطلب على صنف واحد على الأقل.','err');});
+ $('itemLines').appendChild(row);syncLinePrices();
+}
+function syncLinePrices(){const show=['شراء','رصيد افتتاحي'].includes($('type').value);document.querySelectorAll('.item-line').forEach(r=>{r.querySelector('.line-price-wrap').classList.toggle('hide',!show);r.querySelector('.line-price').required=show;});}
 function render(d){
  DATA=d;$('userBox').innerHTML='<b>'+esc(d.user.name)+'</b><br>'+esc(d.user.email)+'<br>'+esc(d.user.role)+(d.user.place?' — '+esc(d.user.place):'');
  $('stats').innerHTML='<div class="stat"><span>قيمة المخزون التقديرية</span><strong>'+num(d.summary.totalValue)+' ر.س</strong></div><div class="stat"><span>إجمالي الكميات</span><strong>'+num(d.summary.totalQty)+'</strong></div><div class="stat"><span>طلبات الاعتماد</span><strong>'+d.pending.length+'</strong></div><div class="stat"><span>عدد الأصناف</span><strong>'+d.items.length+'</strong></div>';
  $('pendingCount').textContent='('+d.pending.length+')';
- options('item',d.items.map(x=>({value:x.name,label:x.name+' — '+x.unit})),'اختر الصنف');
+ $('itemLines').innerHTML='';addItemLine();
  options('from',d.places.map(x=>({value:x.name,label:x.name})),'اختر المصدر');
  options('to',d.places.map(x=>({value:x.name,label:x.name})),'اختر المستلم');
  if(d.user.role!=='مالك'&&d.user.place){$('from').value=d.user.place;$('to').value=d.user.place;}
@@ -80,7 +87,7 @@ function render(d){
 }
 function pendingRender(){
  if(!DATA.pending.length){$('pendingList').innerHTML='<div class="empty">لا توجد تحويلات بانتظار اعتماد هذا المكان.</div>';return;}
- $('pendingList').innerHTML=DATA.pending.map(p=>`<article class="pending"><b>${esc(p.id)} — ${esc(p.item)}</b><p>${esc(p.from)} ← ${esc(p.to)}<br>الكمية: ${num(p.qty)} ${esc(p.unit)}<br>التاريخ: ${esc(p.date)}<br>المرسل: ${esc(p.creator)}<br>ملاحظات: ${esc(p.notes||'—')}</p><div class="actions"><button class="primary" type="button" data-action="approve" data-id="${esc(p.id)}">تأكيد الاستلام</button><button class="danger" type="button" data-action="reject" data-id="${esc(p.id)}">رفض التحويل</button></div></article>`).join('');
+ $('pendingList').innerHTML=DATA.pending.map(p=>`<article class="pending"><b>${esc(p.id)} — ${p.items.length} أصناف</b><p>${p.items.map(x=>esc(x.item)+' : '+num(x.qty)+' '+esc(x.unit)).join('<br>')}<br><br>${esc(p.from)} ← ${esc(p.to)}<br>التاريخ: ${esc(p.date)}<br>المرسل: ${esc(p.creator)}<br>ملاحظات: ${esc(p.notes||'—')}</p><div class="actions"><button class="primary" type="button" data-action="approve" data-id="${esc(p.id)}">تأكيد استلام الطلب كاملًا</button><button class="danger" type="button" data-action="reject" data-id="${esc(p.id)}">رفض الطلب كاملًا</button></div></article>`).join('');
  $('pendingList').querySelectorAll('button[data-action]').forEach(btn=>btn.addEventListener('click',()=>{
    if(btn.dataset.action==='approve')decide(btn.dataset.id);else reject(btn.dataset.id);
  }));
@@ -89,14 +96,15 @@ function fields(){
  const t=$('type').value, transfer=t==='تحويل', purchase=t==='شراء', inbound=['شراء','رصيد افتتاحي','تسوية زيادة'].includes(t), outbound=['صرف للتشغيل','هالك','مرتجع للمورد','تسوية عجز'].includes(t);
  $('supplierWrap').classList.toggle('hide',!purchase);$('fromWrap').classList.toggle('hide',inbound);$('toWrap').classList.toggle('hide',outbound);$('priceWrap').classList.toggle('hide',!['شراء','رصيد افتتاحي'].includes(t));
  $('supplier').required=purchase;$('from').required=transfer||outbound;$('to').required=transfer||inbound;$('price').required=['شراء','رصيد افتتاحي'].includes(t);
- $('typeHint').textContent=transfer?'المرسل ينشئ التحويل، والمستلم يؤكد أو يرفض. لا يتغير الرصيد قبل التأكيد.':t==='شراء'?'يسجل الاستلام في المكان المحدد وفق قواعد الاعتماد.':'سيتم تسجيل الحركة وفق صلاحيات المكان.';
+ $('typeHint').textContent=transfer?'أضف جميع الأصناف والكميات؛ سيصل الطلب كاملًا للفرع المستلم لاعتماده مرة واحدة. لا يتغير الرصيد قبل التأكيد.':t==='شراء'?'أدخل اسم المورد يدويًا وأضف الأصناف والكميات وأسعار الشراء.':'أضف صنفًا واحدًا أو أكثر ثم أرسل الحركة.';syncLinePrices();
 }
-$('type').addEventListener('change',fields);
+$('type').addEventListener('change',fields);$('addItemBtn').addEventListener('click',addItemLine);
 document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x===b));['movement','approvals','balances','history'].forEach(x=>$(x).classList.toggle('hide',x!==b.dataset.tab));}));
 $('moveForm').addEventListener('submit',e=>{
  e.preventDefault();const btn=$('submitBtn');btn.disabled=true;
- const f={type:$('type').value,item:$('item').value,qty:$('qty').value,from:$('type').value==='شراء'?$('supplier').value.trim():$('from').value,to:$('to').value,price:$('price').value,date:$('date').value,reference:$('reference').value,notes:$('notes').value};
- google.script.run.withSuccessHandler(r=>{btn.disabled=false;notice(r.message+' رقم الحركة: '+r.id);$('moveForm').reset();$('date').value=new Date().toISOString().slice(0,10);load();})
+ const items=[...document.querySelectorAll('.item-line')].map(r=>({item:r.querySelector('.line-item').value,qty:r.querySelector('.line-qty').value,price:r.querySelector('.line-price').value}));if(!items.length||items.some(x=>!x.item||!(Number(x.qty)>0))){btn.disabled=false;notice('أكمل الصنف والكمية في جميع السطور.','err');return;}
+ const f={type:$('type').value,items,from:$('type').value==='شراء'?$('supplier').value.trim():$('from').value,to:$('to').value,date:$('date').value,reference:$('reference').value,notes:$('notes').value};
+ google.script.run.withSuccessHandler(r=>{btn.disabled=false;notice(r.message+' رقم الحركة: '+r.id);$('moveForm').reset();$('itemLines').innerHTML='';addItemLine();$('date').value=new Date().toISOString().slice(0,10);fields();load();})
  .withFailureHandler(e=>{btn.disabled=false;notice(e.message||String(e),'err');}).submitMovement(f);
 });
 function decide(id){if(!confirm('تأكيد استلام التحويل '+id+'؟'))return;google.script.run.withSuccessHandler(r=>{notice(r.message);load();}).withFailureHandler(e=>notice(e.message||String(e),'err')).decideMovement(id,'approve','');}

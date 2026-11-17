@@ -11,6 +11,50 @@ function ensureHeaders(sheet,required){
  required.forEach(name=>{if(!header.includes(name)){header.push(name);sheet.getRange(1,header.length).setValue(name);}});
  return head(header);
 }
+
+/**
+ * يحدد أول مساحة فارغة اعتمادًا على أعمدة البيانات الفعلية، مع تجاهل أعمدة الصيغ.
+ * segments تحدد الأعمدة التي يسمح بالكتابة فيها فقط للحفاظ على الصيغ.
+ */
+function appendAtFirstDataGap_(sheet, dataRows, keyColumns, segments) {
+  if (!dataRows || !dataRows.length) return;
+  const needed = dataRows.length;
+  const maxRows = sheet.getMaxRows();
+  const scanRows = Math.max(0, maxRows - 1);
+  const keyValues = scanRows
+    ? sheet.getRange(2, 1, scanRows, sheet.getLastColumn()).getValues()
+    : [];
+  let startRow = 2;
+  let found = false;
+  for (let i = 0; i <= keyValues.length - needed; i++) {
+    let blockIsEmpty = true;
+    for (let j = 0; j < needed && blockIsEmpty; j++) {
+      if (keyColumns.some(col => keyValues[i + j][col - 1] !== '' &&
+          keyValues[i + j][col - 1] !== null)) blockIsEmpty = false;
+    }
+    if (blockIsEmpty) {
+      startRow = i + 2;
+      found = true;
+      break;
+    }
+  }
+  if (!found) {
+    startRow = maxRows + 1;
+    sheet.insertRowsAfter(maxRows, needed);
+  }
+  segments.forEach(([startCol, width]) => {
+    const block = dataRows.map(row => row.slice(startCol - 1, startCol - 1 + width));
+    sheet.getRange(startRow, startCol, needed, width).setValues(block);
+  });
+  return startRow;
+}
+function appendMovementRows_(sheet, dataRows) {
+  // تجاهل أعمدة الصيغ H وI وM وN، والكتابة في بقية أعمدة الحركة فقط.
+  return appendAtFirstDataGap_(sheet, dataRows,
+    [1,2,3,4,5,6,7,10,11,12,15],
+    [[1,7],[10,3],[15,1]]);
+}
+
 function makeRow(headers,values,width){
  const row=Array(width).fill('');
  Object.keys(values).forEach(k=>{if(headers[k]!==undefined)row[headers[k]]=values[k];});
@@ -57,7 +101,7 @@ function submitMovement(f){
   const id='MV-'+Utilities.formatDate(new Date(),'Asia/Riyadh','yyyyMMdd-HHmmss')+'-'+Math.floor(Math.random()*900+100),ps=sh(S.pending),now=new Date();
   const ph=ensureHeaders(ps,['معرف الحركة','التاريخ','نوع الحركة','من','إلى','الصنف','الكمية','سعر الوحدة','الوحدة','رقم المرجع','ملاحظات','المدخل','وقت الإدخال','الحالة','المعتمد','وقت الاعتماد','آخر تعديل','سبب الرفض']);
   const fields=clean.map(x=>makeRow(ph,{'معرف الحركة':id,'التاريخ':new Date(f.date+'T12:00:00'),'نوع الحركة':type,'من':from,'إلى':to,'الصنف':x.item.name,'الكمية':x.q,'سعر الوحدة':x.price,'الوحدة':x.item.unit,'رقم المرجع':f.reference||'','ملاحظات':f.notes||'','المدخل':u.email,'وقت الإدخال':now,'الحالة':'بانتظار اعتماد'},ps.getLastColumn()));
-  ps.getRange(ps.getLastRow()+1,1,fields.length,fields[0].length).setValues(fields);
+  appendAtFirstDataGap_(ps,fields,Array.from({length:fields[0].length},(_,i)=>i+1),[[1,fields[0].length]]);
   if(type!=='تحويل'&&u.role==='مالك')decideMovement(id,'approve','');
   audit(u.email,'إنشاء حركة',id,type+' | '+clean.length+' أصناف');
   return {ok:true,id,status:'بانتظار اعتماد',message:'تم إرسال الحركة ('+clean.length+' أصناف) للاعتماد.'};
@@ -91,7 +135,7 @@ function decideMovement(id,decision,reason,editedItems){
     toAdd.push(makeRow(mh,{'معرف الحركة':id,'التاريخ':r[x.h['التاريخ']],'نوع الحركة':r[x.h['نوع الحركة']],'من (مكان)':from,'إلى (مكان)':to,'الصنف':item,'الكمية':qty,'سعر الوحدة (للشراء/الافتتاحي فقط)':Number(r[x.h['سعر الوحدة']])||0,'الوحدة':r[x.h['الوحدة']],'القيمة (تلقائي)':qty*(Number(r[x.h['سعر الوحدة']])||0),'رقم المرجع (فاتورة/إذن)':r[x.h['رقم المرجع']],'المسؤول':r[x.h['المدخل']],'ملاحظات':r[x.h['ملاحظات']]},mv.getLastColumn()));
    }
   });
-  if(toAdd.length)mv.getRange(mv.getLastRow()+1,1,toAdd.length,toAdd[0].length).setValues(toAdd);
+  if(toAdd.length)appendMovementRows_(mv,toAdd);
   matches.forEach(({i})=>{shx.getRange(i+1,x.h['الحالة']+1).setValue('معتمد');if(x.h['المعتمد']!==undefined)shx.getRange(i+1,x.h['المعتمد']+1).setValue(u.email);if(x.h['وقت الاعتماد']!==undefined)shx.getRange(i+1,x.h['وقت الاعتماد']+1).setValue(now);});
   audit(u.email,'اعتماد حركة',id,matches.length+' أصناف');return {ok:true,message:'تم اعتماد وترحيل الطلب كاملًا ('+matches.length+' أصناف).'};
  }
@@ -144,7 +188,7 @@ function repairLegacyOpeningBalance(rowNumber){
   if(!existing){
    const q=Number(values[mh['الكمية']]),price=Number(values[mh['سعر الوحدة']])||0;
    const out=makeRow(headers,{'معرف الحركة':id,'التاريخ':date,'نوع الحركة':'رصيد افتتاحي','من (مكان)':'','إلى (مكان)':values[mh['إلى']],'الصنف':values[mh['الصنف']],'الكمية':q,'سعر الوحدة (للشراء/الافتتاحي فقط)':price,'الوحدة':values[mh['الوحدة']],'القيمة (تلقائي)':q*price,'رقم المرجع (فاتورة/إذن)':values[mh['رقم المرجع']],'المسؤول':values[mh['المدخل']],'ملاحظات':values[mh['ملاحظات']]},mv.getLastColumn());
-   mv.getRange(mv.getLastRow()+1,1,1,out.length).setValues([out]);
+   appendMovementRows_(mv,[out]);
   }
   audit(String(values[mh['المعتمد']]||values[mh['المدخل']]||'system'),'استعادة رصيد افتتاحي قديم',id,'ترحيل آمن من الصف '+row);
   return {ok:true,id,message:'تم استعادة الرصيد الافتتاحي وترحيله مرة واحدة.'};
@@ -179,7 +223,7 @@ function repairKnownLegacyOpeningBalance_(){
   if(!exists){
    const q=parseSheetNumber_(r[h['الكمية']]),price=parseSheetNumber_(r[h['سعر الوحدة']])||0;
    const out=makeRow(mh,{'معرف الحركة':id,'التاريخ':date,'نوع الحركة':'رصيد افتتاحي','من (مكان)':'','إلى (مكان)':r[h['إلى']],'الصنف':r[h['الصنف']],'الكمية':q,'سعر الوحدة (للشراء/الافتتاحي فقط)':price,'الوحدة':r[h['الوحدة']],'القيمة (تلقائي)':q*price,'رقم المرجع (فاتورة/إذن)':r[h['رقم المرجع']],'المسؤول':r[h['المدخل']],'ملاحظات':r[h['ملاحظات']]},mv.getLastColumn());
-   mv.getRange(mv.getLastRow()+1,1,1,out.length).setValues([out]);
+   appendMovementRows_(mv,[out]);
   }
   ps.getRange(rowNumber,h['معرف الحركة']+1).setValue(id);
   ps.getRange(rowNumber,h['التاريخ']+1).setValue(date);

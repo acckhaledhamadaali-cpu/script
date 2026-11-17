@@ -154,6 +154,7 @@ function repairLegacyOpeningBalance(rowNumber){
 
 // استعادة تلقائية وآمنة للسجل القديم المحدد الذي أرسله المستخدم.
 // لا تمس أي سجل آخر، وتعمل مرة واحدة فقط بفضل معرف الحركة.
+function parseSheetNumber_(v){if(typeof v==='number')return v;const s=String(v??'').trim().replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[۰-۹]/g,d=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(d)).replace(/[٫٬]/g,(m)=>m==='٫'?'.':'').replace(/,/g,'');return Number(s);}
 function repairKnownLegacyOpeningBalance_(){
  const ps=sh(S.pending);
  const h=ensureHeaders(ps,['معرف الحركة','التاريخ','نوع الحركة','من','إلى','الصنف','الكمية','سعر الوحدة','الوحدة','رقم المرجع','ملاحظات','المدخل','وقت الإدخال','الحالة','المعتمد','وقت الاعتماد','آخر تعديل','سبب الرفض']);
@@ -164,8 +165,8 @@ function repairKnownLegacyOpeningBalance_(){
   const isTarget=status==='معتمد'&&!r[h['معرف الحركة']]&&!r[h['نوع الحركة']]&&
    String(r[h['إلى']]||'').trim()==='المطبخ المركزي'&&
    String(r[h['الصنف']]||'').trim()==='كاتشب'&&
-   Math.abs(Number(r[h['الكمية']])-0.5)<0.000001&&
-   Math.abs(Number(r[h['سعر الوحدة']])-5)<0.000001&&
+   Math.abs(parseSheetNumber_(r[h['الكمية']])-0.5)<0.000001&&
+   Math.abs(parseSheetNumber_(r[h['سعر الوحدة']])-5)<0.000001&&
    String(r[h['الوحدة']]||'').trim()==='كجم';
   if(!isTarget)continue;
   const rowNumber=j+2,id='MV-LEGACY-OPENING-'+rowNumber;
@@ -176,7 +177,7 @@ function repairKnownLegacyOpeningBalance_(){
   const mh=ensureHeaders(mv,['معرف الحركة','التاريخ','نوع الحركة','من (مكان)','إلى (مكان)','الصنف','الكمية','سعر الوحدة (للشراء/الافتتاحي فقط)','الوحدة','القيمة (تلقائي)','رقم المرجع (فاتورة/إذن)','المسؤول','ملاحظات']);
   const exists=mv.getDataRange().getValues().slice(1).some(x=>String(x[mh['معرف الحركة']]||'')===id);
   if(!exists){
-   const q=Number(r[h['الكمية']]),price=Number(r[h['سعر الوحدة']])||0;
+   const q=parseSheetNumber_(r[h['الكمية']]),price=parseSheetNumber_(r[h['سعر الوحدة']])||0;
    const out=makeRow(mh,{'معرف الحركة':id,'التاريخ':date,'نوع الحركة':'رصيد افتتاحي','من (مكان)':'','إلى (مكان)':r[h['إلى']],'الصنف':r[h['الصنف']],'الكمية':q,'سعر الوحدة (للشراء/الافتتاحي فقط)':price,'الوحدة':r[h['الوحدة']],'القيمة (تلقائي)':q*price,'رقم المرجع (فاتورة/إذن)':r[h['رقم المرجع']],'المسؤول':r[h['المدخل']],'ملاحظات':r[h['ملاحظات']]},mv.getLastColumn());
    mv.getRange(mv.getLastRow()+1,1,1,out.length).setValues([out]);
   }

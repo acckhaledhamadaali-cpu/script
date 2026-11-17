@@ -99,7 +99,7 @@ function getInitialData(){
  });
  const balances=u.role==='مالك'?allBalances:{[u.place]:allBalances[u.place]||{qty:0,value:0}};
  const vals=Object.values(balances);
- return {user:u,items:d.items,places:d.places,summary:{locations:balances,totalQty:vals.reduce((s,v)=>s+v.qty,0),totalValue:vals.reduce((s,v)=>s+v.value,0)},pending:p,recent:m};
+ return {user:u,items:d.items,places:d.places,summary:{locations:balances,totalQty:vals.reduce((s,v)=>s+v.qty,0),totalValue:vals.reduce((s,v)=>s+v.value,0)},pending:p,recent:m,invoices:invoiceArchive_(u)};
 }
 function pending_(u){
  const {a,h}=rows_(S.pending),groups={};
@@ -162,8 +162,8 @@ function submitMovement(f){
   const now=new Date(),date=new Date(String(f.date||'')+'T12:00:00');
   if(isNaN(date.getTime()))throw Error('أدخل تاريخًا صحيحًا.');
   const mv=sh_(S.moves);
-  const mh=ensureHeaders_(mv,['معرف الحركة','التاريخ','نوع الحركة','من (مكان)','إلى (مكان)','الصنف','الكمية','سعر الوحدة (للشراء/الافتتاحي فقط)','الوحدة','القيمة (تلقائي)','رقم المرجع (فاتورة/إذن)','المسؤول','ملاحظات']);
-  const values=clean.map(x=>makeRow_(mh,{'معرف الحركة':id,'التاريخ':date,'نوع الحركة':type,'من (مكان)':from,'إلى (مكان)':to,'الصنف':x.item.name,'الكمية':x.q,'سعر الوحدة (للشراء/الافتتاحي فقط)':x.price,'الوحدة':x.item.unit,'القيمة (تلقائي)':x.q*x.price,'رقم المرجع (فاتورة/إذن)':f.reference||'','المسؤول':u.email,'ملاحظات':(purchase?'المورد: '+from+' | ':'')+(f.notes||'')},mv.getLastColumn()));
+  const mh=ensureHeaders_(mv,['معرف الحركة','التاريخ','نوع الحركة','من (مكان)','إلى (مكان)','الصنف','الكمية','سعر الوحدة (للشراء/الافتتاحي فقط)','الوحدة','القيمة (تلقائي)','رقم المرجع (فاتورة/إذن)','المسؤول','ملاحظات','رابط الفاتورة']);
+  const values=clean.map(x=>makeRow_(mh,{'معرف الحركة':id,'التاريخ':date,'نوع الحركة':type,'من (مكان)':from,'إلى (مكان)':to,'الصنف':x.item.name,'الكمية':x.q,'سعر الوحدة (للشراء/الافتتاحي فقط)':x.price,'الوحدة':x.item.unit,'القيمة (تلقائي)':x.q*x.price,'رقم المرجع (فاتورة/إذن)':f.reference||'','المسؤول':u.email,'ملاحظات':(purchase?'المورد: '+from+' | ':'')+(f.notes||''),'رابط الفاتورة':invoiceUrlForMovement_(f.invoiceFileId,u,to||from)},mv.getLastColumn()));
   if(transfer){
    const ps=sh_(S.pending),ph=ensureHeaders_(ps,['معرف الحركة','التاريخ','نوع الحركة','من','إلى','الصنف','الكمية','سعر الوحدة','الوحدة','رقم المرجع','ملاحظات','المدخل','وقت الإدخال','الحالة','المعتمد','وقت الاعتماد','آخر تعديل','سبب الرفض']);
    const pendingRows=clean.map(x=>makeRow_(ph,{'معرف الحركة':id,'التاريخ':date,'نوع الحركة':type,'من':from,'إلى':to,'الصنف':x.item.name,'الكمية':x.q,'سعر الوحدة':x.price,'الوحدة':x.item.unit,'رقم المرجع':f.reference||'','ملاحظات':f.notes||'','المدخل':u.email,'وقت الإدخال':now,'الحالة':'بانتظار اعتماد'},ps.getLastColumn()));
@@ -226,6 +226,65 @@ function decideMovement(id,decision,reason,editedItems){
   }
   throw Error('قرار غير صحيح.');
  }finally{lock.releaseLock();}
+}
+
+
+const INVOICE_FOLDER_PROP='SHAWARMATI_INVOICE_FOLDER_ID';
+function invoiceFolder_(u){
+ const props=PropertiesService.getScriptProperties();
+ let id=props.getProperty(INVOICE_FOLDER_PROP),folder=null;
+ if(id){try{folder=DriveApp.getFolderById(id);folder.getName();}catch(e){folder=null;}}
+ if(!folder){
+  folder=DriveApp.createFolder('شاورمتي - فواتير المشتريات');
+  props.setProperty(INVOICE_FOLDER_PROP,folder.getId());
+ }
+ // Grant the authorized app users access to the shared invoice archive.
+ const {a,h}=rows_(S.users);
+ const emails=[u.email].concat(a.slice(1).filter(r=>['نعم','yes','true','1'].includes(String(r[h['فعّال']]||'').trim().toLowerCase())).map(r=>String(r[h['الإيميل']]||'').trim().toLowerCase()).filter(Boolean));
+ [...new Set(emails)].forEach(email=>{try{folder.addEditor(email);}catch(e){}});
+ return folder;
+}
+function invoiceSheet_(){
+ const book=ss_();let sheet=book.getSheetByName('أرشيف الفواتير');
+ if(!sheet)sheet=book.insertSheet('أرشيف الفواتير');
+ ensureHeaders_(sheet,['معرف المستند','تاريخ الرفع','رقم الفاتورة','تاريخ الفاتورة','المورد','المكان','اسم الملف','نوع الملف','رابط المستند','معرف ملف Drive','رافع المستند','معرف حركة المخزون','الحالة']);
+ return sheet;
+}
+function uploadInvoice(payload){
+ const u=user_();
+ if(!payload||!payload.data||!payload.name||!payload.mimeType)throw Error('اختر صورة أو ملف PDF أولاً.');
+ const mime=String(payload.mimeType).toLowerCase();
+ if(!['application/pdf','image/jpeg','image/png','image/webp'].includes(mime))throw Error('الملفات المسموحة: PDF وJPG وPNG وWEBP فقط.');
+ const base64=String(payload.data).replace(/^data:[^,]*,/, '');
+ if(base64.length>11*1024*1024)throw Error('حجم الملف كبير. الحد الأقصى 8 ميجابايت.');
+ const bytes=Utilities.base64Decode(base64);
+ const blob=Utilities.newBlob(bytes,mime,String(payload.name).replace(/[\\/:*?"<>|]/g,'_'));
+ const folder=invoiceFolder_(u);
+ const file=folder.createFile(blob);
+ const now=new Date(),id='INV-'+Utilities.formatDate(now,'Asia/Riyadh','yyyyMMdd-HHmmss')+'-'+Math.floor(Math.random()*900+100);
+ const sheet=invoiceSheet_(),headers=head_(sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0]);
+ const place=u.role==='مالك'?String(payload.place||'').trim():u.place;
+ if(place && !refs_().places.some(p=>p.name===place))throw Error('المكان المحدد غير صحيح.');
+ const row=makeRow_(headers,{'معرف المستند':id,'تاريخ الرفع':now,'اسم الملف':file.getName(),'نوع الملف':mime,'رابط المستند':file.getUrl(),'معرف ملف Drive':file.getId(),'رافع المستند':u.email,'المكان':place,'الحالة':'محفوظ - بانتظار ربطه بحركة'},sheet.getLastColumn());
+ appendAtFirstDataGap_(sheet,[row],Array.from({length:row.length},(_,i)=>i+1),[[1,row.length]]);
+ audit_(u.email,'رفع فاتورة',id,file.getName());
+ return {ok:true,id,fileId:file.getId(),url:file.getUrl(),name:file.getName(),message:'تم حفظ المستند في Google Drive وإضافته إلى أرشيف الفواتير.'};
+}
+function invoiceUrlForMovement_(fileId,u,place){
+ if(!fileId)return '';
+ const {a,h}=rows_('أرشيف الفواتير');
+ const row=a.slice(1).find(r=>String(r[h['معرف ملف Drive']])===String(fileId));
+ if(!row)throw Error('ملف الفاتورة غير موجود في الأرشيف.');
+ if(u.role!=='مالك'&&String(row[h['رافع المستند']]||'').toLowerCase()!==u.email&&String(row[h['المكان']]||'')!==u.place)throw Error('لا تملك صلاحية ربط هذا المستند.');
+ const url=String(row[h['رابط المستند']]||'');
+ if(!url)throw Error('رابط المستند غير متاح.');
+ return url;
+}
+function invoiceArchive_(u){
+ const sheet=invoiceSheet_(),{a,h}=rows_('أرشيف الفواتير');
+ return a.slice(1).filter(r=>r[h['معرف المستند']]&&(u.role==='مالك'||String(r[h['المكان']]||'')===u.place||String(r[h['رافع المستند']]||'').toLowerCase()===u.email)).slice(-100).reverse().map(r=>({
+  id:String(r[h['معرف المستند']]||''),uploaded:fmtDate_(r[h['تاريخ الرفع']]),invoiceNo:String(r[h['رقم الفاتورة']]||''),supplier:String(r[h['المورد']]||''),place:String(r[h['المكان']]||''),name:String(r[h['اسم الملف']]||''),url:String(r[h['رابط المستند']]||''),status:String(r[h['الحالة']]||'')
+ }));
 }
 
 function debugConnection(){

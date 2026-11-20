@@ -65,17 +65,24 @@ function user_(){
  if(!email)throw Error('تعذر تحديد بريد المستخدم. تحقق من إعدادات نشر Web App.');
  const {a,h}=rows_(S.users),active=a.slice(1).filter(r=>['نعم','yes','true','1'].includes(String(r[h['فعّال']]||'').trim().toLowerCase()));
  const mine=active.filter(r=>String(r[h['الإيميل']]||'').trim().toLowerCase()===email);
- if(mine.length!==1)throw Error(mine.length?'يوجد تكرار لحسابك في ورقة الصلاحيات.':'المستخدم غير مضاف أو غير مفعل في ورقة الصلاحيات: '+email);
- const r=mine[0],role=String(r[h['الدور']]||'مسؤول مكان').trim(),place=String(r[h['المكان']]||'').trim();
+ if(!mine.length)throw Error('المستخدم غير مضاف أو غير مفعل في ورقة الصلاحيات: '+email);
+ const roles=[...new Set(mine.map(r=>String(r[h['الدور']]||'مسؤول مكان').trim()))];
+ if(roles.length!==1)throw Error('يجب توحيد الدور لكل سجلات البريد الإلكتروني نفسه.');
+ const role=roles[0],places=mine.map(r=>String(r[h['المكان']]||'').trim()).filter(Boolean);
  if(role==='مالك'){
-  if(place)throw Error('حساب المدير العام يجب ألا يرتبط بمكان محدد.');
- }else{
-  if(!place)throw Error('يجب تحديد مكان واحد للمستخدم.');
-  const same=active.filter(x=>String(x[h['المكان']]||'').trim()===place);
-  if(same.length!==1)throw Error('يوجد أكثر من مستخدم فعّال للمكان '+place+'. يجب أن يكون لكل مكان مسؤول واحد فقط.');
-  if(!['مسؤول مكان','مستخدم مكان'].includes(role))throw Error('الدور غير معتمد. استخدم مالك أو مسؤول مكان.');
+  if(mine.some(r=>String(r[h['المكان']]||'').trim()))throw Error('حساب المالك يجب ألا يرتبط بمكان محدد.');
+  if(mine.length!==1)throw Error('يجب أن يظهر حساب المالك مرة واحدة فقط في ورقة الصلاحيات.');
+  return {email,name:mine[0][h['الاسم']]||email,place:'',places:[],role};
  }
- return {email,name:r[h['الاسم']]||email,place,role};
+ if(!['مسؤول مكان','مستخدم مكان'].includes(role))throw Error('الدور غير معتمد. استخدم مالك أو مسؤول مكان.');
+ if(places.length!==mine.length)throw Error('يجب تحديد مكان لكل سجل مستخدم.');
+ if(new Set(places).size!==places.length)throw Error('يوجد تكرار لنفس المكان في سجلات هذا البريد الإلكتروني.');
+ places.forEach(place=>{
+  const assigned=active.filter(r=>String(r[h['المكان']]||'').trim()===place);
+  const assignedEmails=[...new Set(assigned.map(r=>String(r[h['الإيميل']]||'').trim().toLowerCase()))];
+  if(assignedEmails.length!==1||assignedEmails[0]!==email)throw Error('المكان '+place+' مرتبط بأكثر من حساب فعّال. يجب أن يكون له حساب مسؤول واحد فقط.');
+ });
+ return {email,name:mine.map(r=>r[h['الاسم']]).find(Boolean)||email,place:places.length===1?places[0]:'',places,role};
 }
 function refs_(){const {a,h}=rows_(S.items);const items=a.slice(1).filter(r=>r[h['اسم الصنف (فريد)']]).map(r=>({name:String(r[h['اسم الصنف (فريد)']]),unit:String(r[h['الوحدة']]||''),avgCost:Number(r[h['متوسط التكلفة (تلقائي)']]||r[h['سعر مبدئي تقديري (عدّله)']])||0}));const p=rows_(S.places);return {items,places:p.a.slice(1).filter(r=>r[p.h['المكان']]&&!String(r[p.h['المكان']]).startsWith('ملاحظة:')).map(r=>({name:String(r[p.h['المكان']]),type:String(r[p.h['النوع']]||'')}))};}
 function verifyLogin(enteredEmail){
@@ -83,7 +90,7 @@ function verifyLogin(enteredEmail){
  const entered=String(enteredEmail||'').trim().toLowerCase();
  if(!entered)throw Error('أدخل بريدك الإلكتروني.');
  if(entered!==u.email)throw Error('البريد المدخل لا يطابق حساب Google المسجل حاليًا. سجّل الدخول بحسابك الصحيح.');
- return {ok:true,user:{name:u.name,email:u.email,role:u.role,place:u.place}};
+ return {ok:true,user:{name:u.name,email:u.email,role:u.role,place:u.place,places:u.places}};
 }
 function getInitialData(){
  const u=user_();
@@ -97,7 +104,7 @@ function getInitialData(){
   if(to&&allBalances[to]){allBalances[to].qty+=q;allBalances[to].value+=q*price;}
   if(from&&allBalances[from]){allBalances[from].qty-=q;allBalances[from].value-=q*price;}
  });
- const balances=u.role==='مالك'?allBalances:{[u.place]:allBalances[u.place]||{qty:0,value:0}};
+ const balances=u.role==='مالك'?allBalances:Object.fromEntries(u.places.map(place=>[place,allBalances[place]||{qty:0,value:0}]));
  const vals=Object.values(balances);
  return {user:u,items:d.items,places:d.places,summary:{locations:balances,totalQty:vals.reduce((s,v)=>s+v.qty,0),totalValue:vals.reduce((s,v)=>s+v.value,0)},pending:p,recent:m,invoices:invoiceArchive_(u)};
 }
@@ -105,7 +112,7 @@ function pending_(u){
  const {a,h}=rows_(S.pending),groups={};
  a.slice(1).forEach(r=>{
   // الطلبات تظهر للمالك للمتابعة، ولمسؤول المكان المستلم فقط للاعتماد.
-  if(r[h['الحالة']]!=='بانتظار اعتماد'||!(u.role==='مالك'||(u.role==='مسؤول مكان'&&r[h['إلى']]===u.place)))return;
+  if(r[h['الحالة']]!=='بانتظار اعتماد'||!(u.role==='مالك'||(u.role==='مسؤول مكان'&&u.places.includes(String(r[h['إلى']]||'')))))return;
   const id=String(r[h['معرف الحركة']]);if(!groups[id])groups[id]={id,date:fmtDate_(r[h['التاريخ']]),type:r[h['نوع الحركة']],from:r[h['من']],to:r[h['إلى']],creator:r[h['المدخل']],notes:r[h['ملاحظات']],items:[]};
   groups[id].items.push({item:r[h['الصنف']],qty:r[h['الكمية']],unit:r[h['الوحدة']]});
  });
@@ -113,7 +120,7 @@ function pending_(u){
 }
 function recent_(u){
  const {a,h}=rows_(S.moves);
- return a.slice(1).filter(r=>r[h['الصنف']]&&(u.role==='مالك'||r[h['من (مكان)']]===u.place||r[h['إلى (مكان)']]===u.place)).slice(-30).reverse().map(r=>({date:fmtDate_(r[h['التاريخ']]),type:r[h['نوع الحركة']],from:r[h['من (مكان)']],to:r[h['إلى (مكان)']],item:r[h['الصنف']],qty:r[h['الكمية']],unit:r[h['الوحدة']]}));
+ return a.slice(1).filter(r=>r[h['الصنف']]&&(u.role==='مالك'||u.places.includes(String(r[h['من (مكان)']]||''))||u.places.includes(String(r[h['إلى (مكان)']]||'')))).slice(-30).reverse().map(r=>({date:fmtDate_(r[h['التاريخ']]),type:r[h['نوع الحركة']],from:r[h['من (مكان)']],to:r[h['إلى (مكان)']],item:r[h['الصنف']],qty:r[h['الكمية']],unit:r[h['الوحدة']]}));
 }
 function fmtDate_(d){return d instanceof Date?Utilities.formatDate(d,'Asia/Riyadh','yyyy-MM-dd'):String(d||'');}
 function audit_(u,act,id,detail){const x=sh_(S.audit);const a=[new Date(),u,act,id,detail];while(a.length<x.getLastColumn())a.push('');x.appendRow(a);}
@@ -130,14 +137,14 @@ function submitMovement(f){
   if(!items.length)throw Error('أضف صنفًا واحدًا على الأقل.');
   if(!transfer&&!purchase&&!inbound&&!outbound)throw Error('نوع الحركة غير معتمد.');
   if(u.role!=='مالك'){
-   if(transfer){if(from!==u.place)throw Error('لا يمكنك التحويل إلا من مخزون مكانك.');}
-   else if(inbound){to=u.place;if(purchase){}}
-   else if(outbound){from=u.place;to='';}
+   if(transfer){if(!u.places.includes(from))throw Error('لا يمكنك التحويل إلا من أحد الأماكن المصرح لك بها.');}
+   else if(inbound){if(!u.places.includes(to))throw Error('اختر مكانًا مصرحًا لك باستلام المشتريات أو الزيادة فيه.');}
+   else if(outbound){if(!u.places.includes(from))throw Error('اختر مكانًا مصرحًا لك بالصرف منه.');to='';}
    else throw Error('هذه الحركة غير متاحة لصلاحيتك.');
   }
   if(transfer){
    if(!validPlaces.includes(from)||!validPlaces.includes(to)||from===to)throw Error('حدد مصدرًا ومستلمًا صحيحين.');
-   if(u.role!=='مالك'&&from!==u.place)throw Error('لا يمكنك التحويل من مكان آخر.');
+   if(u.role!=='مالك'&&!u.places.includes(from))throw Error('لا يمكنك التحويل من مكان غير مصرح لك به.');
   }else if(purchase){
    if(!from)throw Error('اكتب اسم المورد.');
    if(!validPlaces.includes(to))throw Error('حدد المكان الذي استلم المشتريات.');
@@ -189,7 +196,7 @@ function decideMovement(id,decision,reason,editedItems){
   if(first[x.h['نوع الحركة']]!=='تحويل')throw Error('اعتماد الطلبات متاح للتحويلات فقط.');
   if(matches.some(z=>z.r[x.h['الحالة']]!=='بانتظار اعتماد'))throw Error('تمت معالجة هذا التحويل مسبقًا.');
   if(matches.some(z=>String(z.r[x.h['من']]||'')!==from||String(z.r[x.h['إلى']]||'')!==to||String(z.r[x.h['المدخل']]||'')!==String(first[x.h['المدخل']]||'')))throw Error('بيانات التحويل غير متطابقة. تم إيقاف الاعتماد لحماية المخزون.');
-  if(u.role!=='مالك'&&(u.role!=='مسؤول مكان'||u.place!==to))throw Error('هذه الحركة مخصصة لمسؤول المكان المستلم فقط، ولا تملك صلاحية اعتمادها.');
+  if(u.role!=='مالك'&&(u.role!=='مسؤول مكان'||!u.places.includes(to)))throw Error('هذه الحركة مخصصة لمسؤول المكان المستلم فقط، ولا تملك صلاحية اعتمادها.');
   if(u.role!=='مالك'&&String(first[x.h['المدخل']]||'').toLowerCase()===u.email)throw Error('لا يمكنك تأكيد تحويل أنشأته بنفسك.');
   if(decision==='approve'){
    if(!Array.isArray(editedItems)||editedItems.length!==matches.length)throw Error('راجع كميات جميع الأصناف قبل التأكيد.');
@@ -265,8 +272,10 @@ function uploadInvoice(payload){
  const file=folder.createFile(blob);
  const now=new Date(),id='INV-'+Utilities.formatDate(now,'Asia/Riyadh','yyyyMMdd-HHmmss')+'-'+Math.floor(Math.random()*900+100);
  const sheet=invoiceSheet_(),headers=head_(sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0]);
- const place=u.role==='مالك'?String(payload.place||'').trim():u.place;
- if(place && !refs_().places.some(p=>p.name===place))throw Error('المكان المحدد غير صحيح.');
+ const place=String(payload.place||'').trim();
+ if(u.role==='مالك'){
+  if(place&&!refs_().places.some(p=>p.name===place))throw Error('المكان المحدد غير صحيح.');
+ }else if(!u.places.includes(place))throw Error('اختر مكانًا مصرحًا لك برفع الفاتورة عليه.');
  const row=makeRow_(headers,{'معرف المستند':id,'تاريخ الرفع':now,'اسم الملف':file.getName(),'نوع الملف':mime,'رابط المستند':file.getUrl(),'معرف ملف Drive':file.getId(),'رافع المستند':u.email,'المكان':place,'الحالة':'محفوظ - بانتظار ربطه بحركة'},sheet.getLastColumn());
  appendAtFirstDataGap_(sheet,[row],Array.from({length:row.length},(_,i)=>i+1),[[1,row.length]]);
  audit_(u.email,'رفع فاتورة',id,file.getName());
@@ -277,7 +286,7 @@ function invoiceUrlForMovement_(fileId,u,place,meta){
  const sheet=invoiceSheet_(),data=rows_('أرشيف الفواتير'),index=data.a.slice(1).findIndex(r=>String(r[data.h['معرف ملف Drive']])===String(fileId));
  if(index<0)throw Error('ملف الفاتورة غير موجود في الأرشيف.');
  const row=data.a[index+1];
- if(u.role!=='مالك'&&String(row[data.h['رافع المستند']]||'').toLowerCase()!==u.email&&String(row[data.h['المكان']]||'')!==u.place)throw Error('لا تملك صلاحية ربط هذا المستند.');
+ if(u.role!=='مالك'&&String(row[data.h['رافع المستند']]||'').toLowerCase()!==u.email&&!u.places.includes(String(row[data.h['المكان']]||'')))throw Error('لا تملك صلاحية ربط هذا المستند.');
  const url=String(row[data.h['رابط المستند']]||'');
  if(!url)throw Error('رابط المستند غير متاح.');
  if(meta){const r=index+2;const set=(name,value)=>{if(data.h[name]!==undefined&&value!==undefined&&value!==null)sheet.getRange(r,data.h[name]+1).setValue(value);};set('رقم الفاتورة',meta.reference||'');set('تاريخ الفاتورة',meta.date||'');set('المورد',meta.supplier||'');set('المكان',place||'');set('معرف حركة المخزون',meta.movementId||'');set('الحالة','مرتبط بحركة مخزون');}
@@ -285,7 +294,7 @@ function invoiceUrlForMovement_(fileId,u,place,meta){
 }
 function invoiceArchive_(u){
  const sheet=invoiceSheet_(),{a,h}=rows_('أرشيف الفواتير');
- return a.slice(1).filter(r=>r[h['معرف المستند']]&&(u.role==='مالك'||String(r[h['المكان']]||'')===u.place||String(r[h['رافع المستند']]||'').toLowerCase()===u.email)).slice(-100).reverse().map(r=>({
+ return a.slice(1).filter(r=>r[h['معرف المستند']]&&(u.role==='مالك'||u.places.includes(String(r[h['المكان']]||''))||String(r[h['رافع المستند']]||'').toLowerCase()===u.email)).slice(-100).reverse().map(r=>({
   id:String(r[h['معرف المستند']]||''),uploaded:fmtDate_(r[h['تاريخ الرفع']]),invoiceNo:String(r[h['رقم الفاتورة']]||''),supplier:String(r[h['المورد']]||''),place:String(r[h['المكان']]||''),name:String(r[h['اسم الملف']]||''),url:String(r[h['رابط المستند']]||''),status:String(r[h['الحالة']]||'')
  }));
 }
@@ -300,7 +309,7 @@ function invoiceArchiveRow_(fileId,u){
  const index=data.a.slice(1).findIndex(r=>String(r[data.h['معرف ملف Drive']]||'')===String(fileId));
  if(index<0)throw Error('الفاتورة غير موجودة في الأرشيف.');
  const row=data.a[index+1];
- if(u.role!=='مالك'&&String(row[data.h['رافع المستند']]||'').toLowerCase()!==u.email&&String(row[data.h['المكان']]||'')!==u.place)throw Error('لا تملك صلاحية الوصول إلى هذه الفاتورة.');
+ if(u.role!=='مالك'&&String(row[data.h['رافع المستند']]||'').toLowerCase()!==u.email&&!u.places.includes(String(row[data.h['المكان']]||'')))throw Error('لا تملك صلاحية الوصول إلى هذه الفاتورة.');
  return {row,index,headers:data.h,sheet:sh_('أرشيف الفواتير')};
 }
 

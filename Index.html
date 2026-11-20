@@ -225,7 +225,7 @@ function applyInvoiceExtraction(){
  const btn=$('applyInvoiceExtraction');btn.disabled=true;btn.textContent='جارٍ حفظ التصحيحات...';
  google.script.run.withSuccessHandler(()=>{
   $('type').value='شراء';fields();
-  if(DATA?.user?.places?.length)$('to').value=DATA.user.places[0];
+
   $('supplier').value=LAST_EXTRACTION.invoice.supplier||'';
   $('reference').value=LAST_EXTRACTION.invoice.invoice_number||'';
   const date=LAST_EXTRACTION.invoice.invoice_date||'';

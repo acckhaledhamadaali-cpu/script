@@ -138,13 +138,12 @@ function addItemLine(){
 }
 function syncLinePrices(){const show=['شراء','رصيد افتتاحي'].includes($('type').value);document.querySelectorAll('.item-line').forEach(r=>{r.querySelector('.line-price-wrap').classList.toggle('hide',!show);r.querySelector('.line-price').required=show;});}
 function render(d){
- DATA=d;$('userBox').innerHTML='<b>'+esc(d.user.name)+'</b><br>'+esc(d.user.email)+'<br>'+esc(d.user.role)+(d.user.place?' — '+esc(d.user.place):'');
+ DATA=d;$('userBox').innerHTML='<b>'+esc(d.user.name)+'</b><br>'+esc(d.user.email)+'<br>'+esc(d.user.role)+((d.user.places||[]).length?' — '+esc(d.user.places.join('، ')):'');
  $('stats').innerHTML='<div class="stat"><span>قيمة المخزون التقديرية</span><strong>'+num(d.summary.totalValue)+' ر.س</strong></div><div class="stat"><span>إجمالي الكميات</span><strong>'+num(d.summary.totalQty)+'</strong></div><div class="stat"><span>طلبات الاعتماد</span><strong>'+d.pending.length+'</strong></div><div class="stat"><span>عدد الأصناف</span><strong>'+d.items.length+'</strong></div>';
  $('pendingCount').textContent='('+d.pending.length+')';
  $('itemLines').innerHTML='';addItemLine();
  options('from',d.places.map(x=>({value:x.name,label:x.name})),'اختر المصدر');
  options('to',d.places.map(x=>({value:x.name,label:x.name})),'اختر المستلم');
- if(d.user.role!=='مالك'&&d.user.place){$('from').value=d.user.place;$('to').value=d.user.place;}
  $('balanceRows').innerHTML=Object.entries(d.summary.locations).map(([n,v])=>'<tr><td>'+esc(n)+'</td><td>'+num(v.qty)+'</td><td>'+num(v.value)+'</td></tr>').join('');
  $('historyRows').innerHTML=d.recent.map(x=>'<tr><td>'+esc(x.date)+'</td><td>'+esc(x.type)+'</td><td>'+esc(x.from)+'</td><td>'+esc(x.to)+'</td><td>'+esc(x.item)+'</td><td>'+num(x.qty)+' '+esc(x.unit)+'</td></tr>').join('')||'<tr><td colspan="6" class="empty">لا توجد حركات</td></tr>';
  pendingRender();invoiceRender();fields();
@@ -159,9 +158,18 @@ function pendingRender(){
 }
 function fields(){
  const t=$('type').value, transfer=t==='تحويل', purchase=t==='شراء', inbound=['شراء','رصيد افتتاحي','تسوية زيادة'].includes(t), outbound=['صرف للتشغيل','هالك','مرتجع للمورد','تسوية عجز'].includes(t);
+ const allowed=DATA?.user?.role==='مالك'?DATA.places:DATA.places.filter(x=>(DATA.user.places||[DATA.user.place]).includes(x.name));
+ const fromCurrent=$('from').value,toCurrent=$('to').value;
+ const fromOptions=allowed.map(x=>({value:x.name,label:x.name}));
+ const toSource=(transfer&&DATA?.user?.role!=='مالك')?DATA.places:allowed;
+ const toOptions=toSource.map(x=>({value:x.name,label:x.name}));
+ options('from',fromOptions,'اختر المصدر');options('to',toOptions,'اختر المستلم');
+ if(fromOptions.some(x=>x.value===fromCurrent))$('from').value=fromCurrent;else if(fromOptions.length)$('from').value=fromOptions[0].value;
+ if(toOptions.some(x=>x.value===toCurrent))$('to').value=toCurrent;else if(toOptions.length)$('to').value=toOptions[0].value;
  $('supplierWrap').classList.toggle('hide',!purchase);$('fromWrap').classList.toggle('hide',inbound);$('toWrap').classList.toggle('hide',outbound);
  $('supplier').required=purchase;$('from').required=transfer||outbound;$('to').required=transfer||inbound;
- $('typeHint').textContent=transfer?'أضف جميع الأصناف والكميات؛ سيصل الطلب كاملًا للفرع المستلم لاعتماده مرة واحدة. لا يتغير الرصيد قبل التأكيد.':t==='شراء'?'أدخل اسم المورد يدويًا وأضف الأصناف والكميات وأسعار الشراء.':'أضف صنفًا واحدًا أو أكثر ثم أرسل الحركة.';syncLinePrices();
+ $('typeHint').textContent=transfer?'أضف جميع الأصناف والكميات؛ سيصل الطلب كاملًا للفرع المستلم لاعتماده مرة واحدة. لا يتغير الرصيد قبل التأكيد.':t==='شراء'?'أدخل اسم المورد يدويًا وأضف الأصناف والكميات وأسعار الشراء، وحدد الفرع المستلم.':'أضف صنفًا واحدًا أو أكثر ثم أرسل الحركة.';
+ syncLinePrices();
 }
 $('type').addEventListener('change',fields);$('addItemBtn').addEventListener('click',addItemLine);
 document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x===b));['movement','approvals','balances','history','invoices'].forEach(x=>$(x).classList.toggle('hide',x!==b.dataset.tab));}));
@@ -217,7 +225,7 @@ function applyInvoiceExtraction(){
  const btn=$('applyInvoiceExtraction');btn.disabled=true;btn.textContent='جارٍ حفظ التصحيحات...';
  google.script.run.withSuccessHandler(()=>{
   $('type').value='شراء';fields();
-  if(DATA?.user?.place)$('to').value=DATA.user.place;
+  if(DATA?.user?.places?.length)$('to').value=DATA.user.places[0];
   $('supplier').value=LAST_EXTRACTION.invoice.supplier||'';
   $('reference').value=LAST_EXTRACTION.invoice.invoice_number||'';
   const date=LAST_EXTRACTION.invoice.invoice_date||'';
@@ -295,7 +303,7 @@ function uploadInvoiceFromInput(input){
    $('invoiceStatus').innerHTML='تم الحفظ: <a href="'+esc(r.url)+'" target="_blank" rel="noopener">فتح المستند</a> — '+esc(r.name);
    if(DATA){DATA.invoices.unshift({id:r.id,uploaded:new Date().toISOString().slice(0,10),name:r.name,url:r.url,status:'محفوظ - بانتظار ربطه بحركة'});invoiceRender();}
    runInvoiceExtraction(r.fileId);
-  }).withFailureHandler(e=>{$('invoiceStatus').textContent='فشل حفظ المستند: '+(e.message||String(e));notice(e.message||String(e),'err');}).uploadInvoice({name:file.name,mimeType:file.type||(/\\.pdf$/i.test(file.name)?'application/pdf':/\\.png$/i.test(file.name)?'image/png':/\\.webp$/i.test(file.name)?'image/webp':'image/jpeg'),data});
+  }).withFailureHandler(e=>{$('invoiceStatus').textContent='فشل حفظ المستند: '+(e.message||String(e));notice(e.message||String(e),'err');}).uploadInvoice({place:$('to').value||$('from').value,name:file.name,mimeType:file.type||(/\\.pdf$/i.test(file.name)?'application/pdf':/\\.png$/i.test(file.name)?'image/png':/\\.webp$/i.test(file.name)?'image/webp':'image/jpeg'),data});
  };
  reader.onerror=()=>{notice('تعذر قراءة الملف من الجهاز.','err');};
  reader.readAsDataURL(file);

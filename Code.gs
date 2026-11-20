@@ -286,7 +286,7 @@ function invoiceUrlForMovement_(fileId,u,place,meta){
  const sheet=invoiceSheet_(),data=rows_('أرشيف الفواتير'),index=data.a.slice(1).findIndex(r=>String(r[data.h['معرف ملف Drive']])===String(fileId));
  if(index<0)throw Error('ملف الفاتورة غير موجود في الأرشيف.');
  const row=data.a[index+1];
- if(u.role!=='مالك'&&String(row[data.h['رافع المستند']]||'').toLowerCase()!==u.email&&!u.places.includes(String(row[data.h['المكان']]||'')))throw Error('لا تملك صلاحية ربط هذا المستند.');
+ if(u.role!=='مالك'&&(!u.places.includes(place)||String(row[data.h['المكان']]||'')!==place))throw Error('الفاتورة مرتبطة بمكان مختلف عن الحركة أو لا تملك صلاحية هذا المكان.');
  const url=String(row[data.h['رابط المستند']]||'');
  if(!url)throw Error('رابط المستند غير متاح.');
  if(meta){const r=index+2;const set=(name,value)=>{if(data.h[name]!==undefined&&value!==undefined&&value!==null)sheet.getRange(r,data.h[name]+1).setValue(value);};set('رقم الفاتورة',meta.reference||'');set('تاريخ الفاتورة',meta.date||'');set('المورد',meta.supplier||'');set('المكان',place||'');set('معرف حركة المخزون',meta.movementId||'');set('الحالة','مرتبط بحركة مخزون');}

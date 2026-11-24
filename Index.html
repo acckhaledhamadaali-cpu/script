@@ -56,15 +56,9 @@
     <div class="login-brand"><div><div class="brand-name">شاورمتي</div><div class="brand-sub">نظام إدارة المخزون والفروع</div></div></div>
     <div class="login-rule"></div>
     <div class="login-icon">↗</div>
-    <h1>تسجيل الدخول</h1>
-    <p class="login-intro">أدخل بريدك الإلكتروني المعتمد للوصول إلى لوحة إدارة المخزون.</p>
-    <form id="loginForm">
-      <label for="loginEmail">البريد الإلكتروني</label>
-      <input id="loginEmail" type="email" autocomplete="username" placeholder="name@example.com" required>
-      <button class="login-btn" id="loginBtn" type="submit">الدخول إلى النظام <span>←</span></button>
-    </form>
-    <div id="loginError" class="login-error" role="alert"></div>
-    <button class="secondary" type="button" id="changeGoogleAccount">تبديل حساب Google</button>
+    <h1>جارٍ التحقق من حساب Google</h1>
+    <p class="login-intro">يتم تحديد الحساب النشط والتحقق من صلاحياته تلقائيًا. لا يلزم إدخال بريد إلكتروني أو كلمة مرور.</p>
+    <div id="loginError" class="login-error show" role="status">جارٍ التحقق من الحساب وتحميل بيانات المخزون...</div>
     <div class="login-foot"><span class="secure-dot"></span> دخول مخصص للمستخدمين المعتمدين فقط</div>
   </div>
   <div class="login-copy">شاورمتي · إدارة المخزون بوضوح ودقة</div>
@@ -118,6 +112,9 @@ function load(isBackground=false){
  REFRESH_BUSY=true;
  google.script.run.withSuccessHandler(d=>{
   REFRESH_BUSY=false;
+  $('loginScreen').classList.add('hide');
+  $('appShell').classList.remove('hide');
+  $('loginError').classList.remove('show');
   const current=new Set((d.pending||[]).map(p=>p.id));
   if(KNOWN_PENDING_IDS!==null){
    (d.pending||[]).filter(p=>!KNOWN_PENDING_IDS.has(p.id)).forEach(p=>{
@@ -127,7 +124,15 @@ function load(isBackground=false){
    });
   }
   KNOWN_PENDING_IDS=current;render(d);
- }).withFailureHandler(e=>{REFRESH_BUSY=false;if(!isBackground)notice('فشل تحميل بيانات التطبيق: '+(e.message||String(e)),'err');}).getInitialData();
+ }).withFailureHandler(e=>{
+  REFRESH_BUSY=false;
+  if($('appShell').classList.contains('hide')){
+   $('loginError').textContent=e.message||String(e);
+   $('loginError').classList.add('show');
+  }else if(!isBackground){
+   notice('فشل تحميل بيانات التطبيق: '+(e.message||String(e)),'err');
+  }
+ }).getInitialData();
 }
 function options(id,items,placeholder){$(id).innerHTML='<option value="">'+placeholder+'</option>'+items.map(x=>'<option value="'+esc(x.value)+'">'+esc(x.label)+'</option>').join('');}
 function addItemLine(){
@@ -316,24 +321,9 @@ $('clearInvoice').addEventListener('click',()=>{$('invoiceFileId').value='';$('i
 function decide(id,editedItems){if(!confirm('تأكيد استلام الحركة '+id+' بالكميات المدخلة؟'))return;google.script.run.withSuccessHandler(r=>{notice(r.message);load();}).withFailureHandler(e=>notice(e.message||String(e),'err')).decideMovement(id,'approve','',editedItems);}
 function reject(id){const reason=prompt('اكتب سبب رفض التحويل:');if(!reason||!reason.trim())return;google.script.run.withSuccessHandler(r=>{notice(r.message);load();}).withFailureHandler(e=>notice(e.message||String(e),'err')).decideMovement(id,'reject',reason);}
 
-function showLoginError(message){const el=$('loginError');el.textContent=message;el.classList.add('show');}
-$('changeGoogleAccount').addEventListener('click',()=>{
- const continueUrl=encodeURIComponent(window.location.href);
- window.location.assign('https://accounts.google.com/AccountChooser?continue='+continueUrl);
-});
-$('loginForm').addEventListener('submit',e=>{
- e.preventDefault();
- const btn=$('loginBtn'),email=$('loginEmail').value.trim();
- $('loginError').classList.remove('show');btn.disabled=true;btn.textContent='جارٍ التحقق من الحساب...';
- google.script.run.withSuccessHandler(result=>{
-  btn.disabled=false;btn.innerHTML='الدخول إلى النظام <span>←</span>';
-  $('loginScreen').classList.add('hide');$('appShell').classList.remove('hide');
-  $('date').value=new Date().toISOString().slice(0,10);load();
- }).withFailureHandler(err=>{
-  btn.disabled=false;btn.innerHTML='الدخول إلى النظام <span>←</span>';
-  showLoginError(err.message||String(err));
- }).verifyLogin(email);
-});
+// يبدأ التحقق تلقائيًا باستخدام حساب Google النشط.
+$('date').value=new Date().toISOString().slice(0,10);
+load();
 $('enableNotifications').addEventListener('click',async()=>{
  if(!('Notification' in window)){notice('هذا المتصفح لا يدعم إشعارات سطح المكتب. ستظل التنبيهات ظاهرة داخل التطبيق.','err');return;}
  try{const permission=await Notification.requestPermission();if(permission==='granted')notice('تم تفعيل إشعارات المتصفح. ستصلك تنبيهات التحويلات الجديدة أثناء فتح التطبيق.');else notice('لم يتم السماح بإشعارات المتصفح. ستظل التنبيهات داخل التطبيق.','err');}catch(e){notice('تعذر تفعيل إشعارات المتصفح.','err');}

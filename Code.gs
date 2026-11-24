@@ -89,7 +89,7 @@ function verifyLogin(enteredEmail){
  const u=user_();
  const entered=String(enteredEmail||'').trim().toLowerCase();
  if(!entered)throw Error('أدخل بريدك الإلكتروني.');
- if(entered!==u.email)throw Error('البريد المدخل لا يطابق حساب Google المسجل حاليًا. سجّل الدخول بحسابك الصحيح.');
+ if(entered!==u.email)throw Error('البريد المدخل لا يطابق حساب Google المسجل حاليًا. الحساب الذي يتعرف عليه النظام هو: '+u.email+'. اضغط «تبديل حساب Google» واختر '+entered+' ثم أعد المحاولة.');
  return {ok:true,user:{name:u.name,email:u.email,role:u.role,place:u.place,places:u.places}};
 }
 function getInitialData(){

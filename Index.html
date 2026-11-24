@@ -64,6 +64,7 @@
       <button class="login-btn" id="loginBtn" type="submit">الدخول إلى النظام <span>←</span></button>
     </form>
     <div id="loginError" class="login-error" role="alert"></div>
+    <button class="secondary" type="button" id="changeGoogleAccount">تبديل حساب Google</button>
     <div class="login-foot"><span class="secure-dot"></span> دخول مخصص للمستخدمين المعتمدين فقط</div>
   </div>
   <div class="login-copy">شاورمتي · إدارة المخزون بوضوح ودقة</div>
@@ -316,6 +317,10 @@ function decide(id,editedItems){if(!confirm('تأكيد استلام الحرك�
 function reject(id){const reason=prompt('اكتب سبب رفض التحويل:');if(!reason||!reason.trim())return;google.script.run.withSuccessHandler(r=>{notice(r.message);load();}).withFailureHandler(e=>notice(e.message||String(e),'err')).decideMovement(id,'reject',reason);}
 
 function showLoginError(message){const el=$('loginError');el.textContent=message;el.classList.add('show');}
+$('changeGoogleAccount').addEventListener('click',()=>{
+ const continueUrl=encodeURIComponent(window.location.href);
+ window.location.assign('https://accounts.google.com/AccountChooser?continue='+continueUrl);
+});
 $('loginForm').addEventListener('submit',e=>{
  e.preventDefault();
  const btn=$('loginBtn'),email=$('loginEmail').value.trim();
